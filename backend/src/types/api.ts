@@ -1,0 +1,159 @@
+/**
+ * API Types
+ *
+ * Request and response types for the API.
+ */
+
+import { z } from 'zod';
+import { VIDEO_FORMATS, PROJECT_STATUS } from '@/config/constants';
+
+// =============================================================================
+// Common Schemas
+// =============================================================================
+
+/**
+ * UUID validation
+ */
+export const uuidSchema = z.string().uuid('Invalid UUID format');
+
+/**
+ * Pagination query parameters
+ */
+export const paginationSchema = z.object({
+  page: z
+    .string()
+    .regex(/^\d+$/)
+    .optional()
+    .transform((val) => (val ? parseInt(val, 10) : 1)),
+  limit: z
+    .string()
+    .regex(/^\d+$/)
+    .optional()
+    .transform((val) => (val ? parseInt(val, 10) : 20)),
+});
+
+// =============================================================================
+// Video Schemas
+// =============================================================================
+
+/**
+ * Video format enum
+ */
+export const videoFormatSchema = z.enum([
+  VIDEO_FORMATS.REEL,
+  VIDEO_FORMATS.SHORT_VIDEO,
+  VIDEO_FORMATS.VFX_MOVIE,
+  VIDEO_FORMATS.PRESENTATION,
+]);
+
+/**
+ * Project status enum
+ */
+export const projectStatusSchema = z.enum([
+  PROJECT_STATUS.DRAFT,
+  PROJECT_STATUS.SCREENPLAY_GENERATED,
+  PROJECT_STATUS.PROCESSING,
+  PROJECT_STATUS.COMPLETED,
+  PROJECT_STATUS.FAILED,
+]);
+
+/**
+ * Screenplay scene schema
+ */
+export const screenplaySceneSchema = z.object({
+  sceneNumber: z.number().int().positive(),
+  duration: z.number().positive(),
+  visualDescription: z.string().min(1),
+  narration: z.string(),
+  textOverlay: z.string().optional(),
+  transition: z.string().optional(),
+});
+
+/**
+ * Screenplay schema
+ */
+export const screenplaySchema = z.object({
+  title: z.string().min(1),
+  format: videoFormatSchema,
+  totalDuration: z.number().positive(),
+  scenes: z.array(screenplaySceneSchema).min(1),
+  voiceoverStyle: z.string().optional(),
+  musicSuggestion: z.string().optional(),
+});
+
+/**
+ * Video generation request schema
+ */
+export const videoGenerationRequestSchema = z.object({
+  projectId: uuidSchema.optional(),
+  projectName: z.string().min(1, 'Project name is required').max(255),
+  format: videoFormatSchema,
+  targetDuration: z.number().int().positive().max(600).default(30),
+  topic: z.string().min(1, 'Topic is required').max(1000),
+  aiModel: z.string().default('gpt-4.1'),
+  enableVoiceover: z.boolean().default(true),
+  enableCaptions: z.boolean().default(false),
+  backgroundVideo: z
+    .object({
+      id: z.string(),
+      url: z.string().url(),
+      thumbnailUrl: z.string().url(),
+    })
+    .optional(),
+  userId: z.string().min(1, 'User ID is required'),
+});
+
+/**
+ * Enhance screenplay request schema
+ */
+export const enhanceScreenplayRequestSchema = z.object({
+  projectId: uuidSchema.optional(),
+  screenplay: screenplaySchema,
+  feedback: z.string().min(1, 'Feedback is required').max(2000),
+});
+
+/**
+ * Generate video from screenplay request schema
+ */
+export const generateVideoRequestSchema = z.object({
+  projectId: uuidSchema.optional(),
+  screenplay: screenplaySchema,
+  userId: z.string().optional(),
+});
+
+// =============================================================================
+// Project Schemas
+// =============================================================================
+
+/**
+ * Create project request schema
+ */
+export const createProjectRequestSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(255),
+  description: z.string().max(1000).optional(),
+  content_type: z.string().min(1, 'Content type is required'),
+});
+
+/**
+ * Update project request schema
+ */
+export const updateProjectRequestSchema = z.object({
+  name: z.string().min(1).max(255).optional(),
+  description: z.string().max(1000).optional(),
+  status: projectStatusSchema.optional(),
+});
+
+// =============================================================================
+// Type Exports (inferred from schemas)
+// =============================================================================
+
+export type VideoFormat = z.infer<typeof videoFormatSchema>;
+export type ProjectStatus = z.infer<typeof projectStatusSchema>;
+export type ScreenplayScene = z.infer<typeof screenplaySceneSchema>;
+export type Screenplay = z.infer<typeof screenplaySchema>;
+export type VideoGenerationRequest = z.infer<typeof videoGenerationRequestSchema>;
+export type EnhanceScreenplayRequest = z.infer<typeof enhanceScreenplayRequestSchema>;
+export type GenerateVideoRequest = z.infer<typeof generateVideoRequestSchema>;
+export type CreateProjectRequest = z.infer<typeof createProjectRequestSchema>;
+export type UpdateProjectRequest = z.infer<typeof updateProjectRequestSchema>;
+export type PaginationParams = z.infer<typeof paginationSchema>;
