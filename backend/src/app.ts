@@ -54,8 +54,8 @@ export function createApp(): Application {
 
   // Legacy routes for backward compatibility
   // TODO: Remove these after frontend migration
-  app.use('/api/projects', v1Routes);
-  app.use('/api/video', v1Routes);
+  // Mount video routes directly at /api/video (not through v1Routes which adds /video again)
+  app.use('/api', v1Routes);
 
   // ==========================================================================
   // Post-route Middleware

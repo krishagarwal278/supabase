@@ -169,6 +169,25 @@ router.get(
 );
 
 /**
+ * GET /api/v1/video/project/:id/screenplays
+ * Get screenplays for a specific project
+ */
+router.get(
+  '/project/:id/screenplays',
+  asyncHandler(async (req: Request, res: Response) => {
+    const idResult = uuidSchema.safeParse(req.params['id']);
+
+    if (!idResult.success) {
+      throw new ValidationError('Invalid project ID format');
+    }
+
+    const screenplays = await videoService.getProjectScreenplays(idResult.data);
+
+    return success(res, { screenplays });
+  })
+);
+
+/**
  * DELETE /api/v1/video/project/:id
  * Delete a video project
  */

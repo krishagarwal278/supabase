@@ -18,7 +18,7 @@ import {
   GenerateVideoRequest,
   Screenplay,
 } from '@/types/api';
-import { VideoGenerationResult, VideoGenerationResponse, ChatHistoryEntry } from '@/types/models';
+import { VideoGenerationResult, VideoGenerationResponse } from '@/types/models';
 
 const serviceLogger = logger.child({ service: 'video' });
 
@@ -165,10 +165,13 @@ export async function getScreenplays(userId?: string): Promise<
 > {
   const supabase = getServiceClient();
 
+  // Screenplays are stored by the 'system' username with role 'assistant'
+  // They can have chat_id as either 'screenplay_*' or a project UUID
   let query = supabase
     .from(TABLES.CHAT_HISTORY)
     .select('*')
-    .like('chat_id', 'screenplay_%')
+    .eq('username', 'system')
+    .eq('role', 'assistant')
     .order('created_at', { ascending: false });
 
   if (userId) {
@@ -181,13 +184,89 @@ export async function getScreenplays(userId?: string): Promise<
     throw new DatabaseError(`Failed to fetch screenplays: ${error.message}`);
   }
 
-  return (data || []).map((entry: ChatHistoryEntry) => ({
-    id: entry.id,
-    chatId: entry.chat_id,
-    userId: entry.user_id,
-    screenplay: JSON.parse(entry.message),
-    createdAt: entry.created_at,
-  }));
+  // Filter to only entries that contain valid screenplay JSON
+  const screenplays: Array<{
+    id: string;
+    chatId: string;
+    userId: string;
+    screenplay: Screenplay;
+    createdAt: string;
+  }> = [];
+
+  for (const entry of data || []) {
+    try {
+      const parsed = JSON.parse(entry.message);
+      // Check if it looks like a screenplay (has scenes array)
+      if (parsed && Array.isArray(parsed.scenes)) {
+        screenplays.push({
+          id: entry.id,
+          chatId: entry.chat_id,
+          userId: entry.user_id,
+          screenplay: parsed,
+          createdAt: entry.created_at,
+        });
+      }
+    } catch {
+      // Not valid JSON or not a screenplay, skip
+    }
+  }
+
+  return screenplays;
+}
+
+/**
+ * Get screenplays for a specific project
+ */
+export async function getProjectScreenplays(projectId: string): Promise<
+  Array<{
+    id: string;
+    chatId: string;
+    userId: string;
+    screenplay: Screenplay;
+    createdAt: string;
+  }>
+> {
+  const supabase = getServiceClient();
+
+  // Screenplays for a project are stored with chat_id = projectId
+  const { data, error } = await supabase
+    .from(TABLES.CHAT_HISTORY)
+    .select('*')
+    .eq('chat_id', projectId)
+    .eq('username', 'system')
+    .eq('role', 'assistant')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    throw new DatabaseError(`Failed to fetch project screenplays: ${error.message}`);
+  }
+
+  const screenplays: Array<{
+    id: string;
+    chatId: string;
+    userId: string;
+    screenplay: Screenplay;
+    createdAt: string;
+  }> = [];
+
+  for (const entry of data || []) {
+    try {
+      const parsed = JSON.parse(entry.message);
+      if (parsed && Array.isArray(parsed.scenes)) {
+        screenplays.push({
+          id: entry.id,
+          chatId: entry.chat_id,
+          userId: entry.user_id,
+          screenplay: parsed,
+          createdAt: entry.created_at,
+        });
+      }
+    } catch {
+      // Not valid JSON or not a screenplay, skip
+    }
+  }
+
+  return screenplays;
 }
 
 // =============================================================================
