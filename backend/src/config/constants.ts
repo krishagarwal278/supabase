@@ -21,140 +21,181 @@ export const TABLES = {
 
 /**
  * Credit costs for different operations
+ * MVP: Each video costs 10 credits, screenplays are free
  */
 export const CREDIT_COSTS = {
-  SCREENPLAY_GENERATION: 0, // Free
-  VIDEO_GENERATION_REEL: 10,
-  VIDEO_GENERATION_SHORT: 15,
-  VIDEO_GENERATION_VFX: 25,
-  VIDEO_GENERATION_PRESENTATION: 20,
-  SCREENPLAY_ENHANCEMENT: 0, // Free
+  SCREENPLAY_GENERATION: 0, // Free - always
+  VIDEO_GENERATION_REEL: 10, // ~$0.20 fal AI cost
+  VIDEO_GENERATION_SHORT: 10, // Same for MVP simplicity
+  VIDEO_GENERATION_VFX: 10, // Same for MVP simplicity
+  VIDEO_GENERATION_PRESENTATION: 10, // Same for MVP simplicity
+  SCREENPLAY_ENHANCEMENT: 0, // Free - always
+} as const;
+
+/**
+ * MVP Beta Configuration
+ * For initial 20 beta users with limited credits
+ */
+export const MVP_CONFIG = {
+  MAX_BETA_USERS: 20,
+  BETA_USER_CREDITS: 40, // 4 videos worth (10 credits each)
+  BETA_PERIOD_DAYS: 14, // 2 weeks
+  CREDITS_PER_VIDEO: 10,
+  MAX_VIDEOS_PER_PERIOD: 4,
+  IS_BETA_MODE: true, // Set to false when launching payments
 } as const;
 
 /**
  * Default credits for new users by plan
  */
 export const DEFAULT_CREDITS = {
-  free: 50,
-  starter: 200,
-  pro: 500,
-  enterprise: 2000,
+  free: 40, // MVP: 4 videos worth
+  beta: 40, // Beta testers
+  starter: 100, // 10 videos
+  pro: 300, // 30 videos
+  enterprise: 1000, // 100 videos
 } as const;
 
 /**
  * Subscription plans configuration
+ * Pricing modeled after fal.ai (~$0.20/video) with margin
  */
 export const SUBSCRIPTION_PLANS = {
   free: {
     id: 'free',
-    name: 'Free',
-    description: 'Get started with basic video generation',
+    name: 'Free Trial',
+    description: 'Try ContentAI with limited credits',
     price: 0,
     priceMonthly: 0,
     priceYearly: 0,
-    credits: 50,
+    credits: 40,
+    videosIncluded: 4,
     features: [
-      '50 credits per month',
-      'Basic video formats (Reel)',
+      '4 AI videos included',
+      'Unlimited screenplay generation',
+      'All video formats',
       'Standard quality',
       'Community support',
     ],
-    limitations: ['Watermark on videos', 'Max 30s duration'],
+    limitations: ['Limited to 4 videos total'],
   },
   starter: {
     id: 'starter',
     name: 'Starter',
     description: 'Perfect for content creators getting started',
-    price: 9.99,
-    priceMonthly: 9.99,
-    priceYearly: 99.99,
-    credits: 200,
+    price: 9,
+    priceMonthly: 9,
+    priceYearly: 90,
+    credits: 100,
+    videosIncluded: 10,
     features: [
-      '200 credits per month',
+      '10 AI videos per month',
+      'Unlimited screenplay generation',
       'All video formats',
       'HD quality',
-      'No watermark',
       'Email support',
-      'Max 60s duration',
     ],
     limitations: [],
+    stripePriceId: '', // Add Stripe price ID when ready
+    squareSubscriptionId: '', // Add Square ID when ready
   },
   pro: {
     id: 'pro',
     name: 'Pro',
     description: 'For professional content creators',
-    price: 29.99,
-    priceMonthly: 29.99,
-    priceYearly: 299.99,
-    credits: 500,
+    price: 29,
+    priceMonthly: 29,
+    priceYearly: 290,
+    credits: 300,
+    videosIncluded: 30,
     features: [
-      '500 credits per month',
+      '30 AI videos per month',
+      'Unlimited screenplay generation',
       'All video formats',
       '4K quality',
-      'No watermark',
       'Priority support',
-      'Max 5min duration',
       'Custom branding',
-      'API access',
     ],
     limitations: [],
     popular: true,
+    stripePriceId: '',
+    squareSubscriptionId: '',
   },
   enterprise: {
     id: 'enterprise',
     name: 'Enterprise',
     description: 'For teams and businesses',
-    price: 99.99,
-    priceMonthly: 99.99,
-    priceYearly: 999.99,
-    credits: 2000,
+    price: 99,
+    priceMonthly: 99,
+    priceYearly: 990,
+    credits: 1000,
+    videosIncluded: 100,
     features: [
-      '2000 credits per month',
-      'Unlimited video formats',
+      '100 AI videos per month',
+      'Unlimited screenplay generation',
+      'All video formats',
       '4K+ quality',
-      'No watermark',
       'Dedicated support',
-      'Unlimited duration',
       'Custom branding',
-      'Full API access',
+      'API access',
       'Team collaboration',
-      'Analytics dashboard',
     ],
     limitations: [],
+    stripePriceId: '',
+    squareSubscriptionId: '',
   },
 } as const;
 
 /**
  * Credit packages for one-time purchase
+ * Each credit = 1 video (simplified for MVP)
+ * Pricing: ~$1/video base, discounts for bulk
  */
 export const CREDIT_PACKAGES = {
   small: {
-    id: 'credits_small',
-    name: 'Small Pack',
-    credits: 50,
-    price: 4.99,
+    id: 'credits_5',
+    name: '5 Videos',
+    credits: 50, // 5 videos at 10 credits each
+    videos: 5,
+    price: 5,
+    pricePerVideo: 1.0,
     savings: 0,
+    stripePriceId: '',
+    squareItemId: '',
   },
   medium: {
-    id: 'credits_medium',
-    name: 'Medium Pack',
+    id: 'credits_15',
+    name: '15 Videos',
     credits: 150,
-    price: 12.99,
-    savings: 13,
+    videos: 15,
+    price: 12,
+    pricePerVideo: 0.8,
+    savings: 20, // 20% off
+    stripePriceId: '',
+    squareItemId: '',
   },
   large: {
-    id: 'credits_large',
-    name: 'Large Pack',
-    credits: 400,
-    price: 29.99,
-    savings: 25,
+    id: 'credits_50',
+    name: '50 Videos',
+    credits: 500,
+    videos: 50,
+    price: 35,
+    pricePerVideo: 0.7,
+    savings: 30, // 30% off
+    stripePriceId: '',
+    squareItemId: '',
+    popular: true,
   },
   mega: {
-    id: 'credits_mega',
-    name: 'Mega Pack',
+    id: 'credits_100',
+    name: '100 Videos',
     credits: 1000,
-    price: 59.99,
-    savings: 40,
+    videos: 100,
+    price: 60,
+    pricePerVideo: 0.6,
+    savings: 40, // 40% off
+    stripePriceId: '',
+    squareItemId: '',
   },
 } as const;
 

@@ -1,17 +1,24 @@
 /**
- * User Preferences API Routes
+ * User API Routes
  *
- * Endpoints for managing user settings and preferences.
+ * Endpoints for managing user settings, preferences, account, and billing.
  */
 
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { TABLES } from '@/config/constants';
+import {
+  TABLES,
+  MVP_CONFIG,
+  SUBSCRIPTION_PLANS,
+  CREDIT_PACKAGES,
+  CREDIT_COSTS,
+} from '@/config/constants';
 import { getServiceClient } from '@/lib/database';
 import { DatabaseError, ValidationError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
 import { success } from '@/lib/response';
 import { asyncHandler } from '@/middleware/error-handler';
+import * as creditsService from '@/services/credits.service';
 
 const router = Router();
 const userLogger = logger.child({ service: 'users' });
@@ -233,6 +240,359 @@ router.delete(
     return success(res, {
       message: 'Preferences reset to defaults',
       preferences: DEFAULT_PREFERENCES,
+    });
+  })
+);
+
+// =============================================================================
+// ACCOUNT & BILLING ENDPOINTS
+// =============================================================================
+
+/**
+ * GET /api/v1/users/account
+ * Get complete account info including credits, plan, and usage
+ */
+router.get(
+  '/account',
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = req.query['userId'] as string;
+
+    if (!userId) {
+      throw new ValidationError('userId query parameter is required');
+    }
+
+    const parseResult = userIdSchema.safeParse(userId);
+    if (!parseResult.success) {
+      throw new ValidationError('Invalid userId format');
+    }
+
+    // Get credits summary
+    const creditsSummary = await creditsService.getCreditsSummary(userId);
+
+    // Calculate videos remaining
+    const videosRemaining = Math.floor(
+      creditsSummary.remainingCredits / CREDIT_COSTS.VIDEO_GENERATION_REEL
+    );
+    const videosUsed = Math.floor(creditsSummary.usedCredits / CREDIT_COSTS.VIDEO_GENERATION_REEL);
+
+    // Get current plan details
+    const currentPlan =
+      SUBSCRIPTION_PLANS[creditsSummary.planType as keyof typeof SUBSCRIPTION_PLANS] ||
+      SUBSCRIPTION_PLANS.free;
+
+    return success(res, {
+      account: {
+        planType: creditsSummary.planType,
+        planName: currentPlan.name,
+        isBetaUser: MVP_CONFIG.IS_BETA_MODE,
+
+        // Credits info
+        credits: {
+          total: creditsSummary.totalCredits,
+          used: creditsSummary.usedCredits,
+          remaining: creditsSummary.remainingCredits,
+        },
+
+        // Videos info (user-friendly)
+        videos: {
+          total: Math.floor(creditsSummary.totalCredits / CREDIT_COSTS.VIDEO_GENERATION_REEL),
+          used: videosUsed,
+          remaining: videosRemaining,
+        },
+
+        // Usage limits
+        limits: {
+          maxVideosPerPeriod: MVP_CONFIG.MAX_VIDEOS_PER_PERIOD,
+          periodDays: MVP_CONFIG.BETA_PERIOD_DAYS,
+          creditsPerVideo: MVP_CONFIG.CREDITS_PER_VIDEO,
+        },
+
+        // Recent transactions
+        recentTransactions: creditsSummary.recentTransactions.slice(0, 5),
+      },
+    });
+  })
+);
+
+/**
+ * GET /api/v1/users/billing
+ * Get billing info and available plans/packages
+ */
+router.get(
+  '/billing',
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = req.query['userId'] as string;
+
+    if (!userId) {
+      throw new ValidationError('userId query parameter is required');
+    }
+
+    const parseResult = userIdSchema.safeParse(userId);
+    if (!parseResult.success) {
+      throw new ValidationError('Invalid userId format');
+    }
+
+    // Get current credits
+    const creditsSummary = await creditsService.getCreditsSummary(userId);
+    const currentPlan =
+      SUBSCRIPTION_PLANS[creditsSummary.planType as keyof typeof SUBSCRIPTION_PLANS] ||
+      SUBSCRIPTION_PLANS.free;
+
+    // Format plans for frontend
+    const availablePlans = Object.values(SUBSCRIPTION_PLANS).map((plan) => ({
+      id: plan.id,
+      name: plan.name,
+      description: plan.description,
+      price: plan.price,
+      priceMonthly: plan.priceMonthly,
+      priceYearly: plan.priceYearly,
+      videosIncluded: plan.videosIncluded,
+      credits: plan.credits,
+      features: plan.features,
+      limitations: plan.limitations,
+      popular: 'popular' in plan ? plan.popular : false,
+      isCurrent: plan.id === creditsSummary.planType,
+    }));
+
+    // Format packages for frontend
+    const availablePackages = Object.values(CREDIT_PACKAGES).map((pkg) => ({
+      id: pkg.id,
+      name: pkg.name,
+      videos: pkg.videos,
+      credits: pkg.credits,
+      price: pkg.price,
+      pricePerVideo: pkg.pricePerVideo,
+      savings: pkg.savings,
+      popular: 'popular' in pkg ? pkg.popular : false,
+    }));
+
+    return success(res, {
+      billing: {
+        currentPlan: {
+          id: currentPlan.id,
+          name: currentPlan.name,
+          price: currentPlan.price,
+        },
+        credits: {
+          total: creditsSummary.totalCredits,
+          remaining: creditsSummary.remainingCredits,
+          videosRemaining: Math.floor(
+            creditsSummary.remainingCredits / CREDIT_COSTS.VIDEO_GENERATION_REEL
+          ),
+        },
+
+        // Available upgrades
+        plans: availablePlans,
+        packages: availablePackages,
+
+        // Credit costs (for display)
+        creditCosts: {
+          video: CREDIT_COSTS.VIDEO_GENERATION_REEL,
+          screenplay: CREDIT_COSTS.SCREENPLAY_GENERATION,
+        },
+
+        // MVP/Beta info
+        isBetaMode: MVP_CONFIG.IS_BETA_MODE,
+        betaMessage: MVP_CONFIG.IS_BETA_MODE
+          ? "You're part of our beta program! Payments are disabled during beta."
+          : null,
+      },
+    });
+  })
+);
+
+/**
+ * POST /api/v1/users/billing/purchase
+ * Purchase a credit package (placeholder for Stripe/Square integration)
+ */
+router.post(
+  '/billing/purchase',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { userId, packageId } = req.body;
+
+    if (!userId || !packageId) {
+      throw new ValidationError('userId and packageId are required');
+    }
+
+    const parseResult = userIdSchema.safeParse(userId);
+    if (!parseResult.success) {
+      throw new ValidationError('Invalid userId format');
+    }
+
+    // Check if in beta mode
+    if (MVP_CONFIG.IS_BETA_MODE) {
+      return success(res, {
+        success: false,
+        message: 'Payments are disabled during beta. Contact support for more credits.',
+        isBetaMode: true,
+        // In production, this would redirect to Stripe/Square checkout
+        checkoutUrl: null,
+      });
+    }
+
+    // Validate package
+    const pkg = Object.values(CREDIT_PACKAGES).find((p) => p.id === packageId);
+    if (!pkg) {
+      throw new ValidationError(`Invalid package: ${packageId}`);
+    }
+
+    // TODO: Integrate with Stripe/Square
+    // For now, return placeholder for payment flow
+    return success(res, {
+      success: true,
+      message: 'Payment integration coming soon',
+      package: {
+        id: pkg.id,
+        name: pkg.name,
+        price: pkg.price,
+        credits: pkg.credits,
+      },
+      // These would be populated by Stripe/Square
+      checkoutUrl: null,
+      sessionId: null,
+      paymentProvider: null, // 'stripe' | 'square'
+    });
+  })
+);
+
+/**
+ * POST /api/v1/users/billing/subscribe
+ * Subscribe to a plan (placeholder for Stripe/Square integration)
+ */
+router.post(
+  '/billing/subscribe',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { userId, planId } = req.body;
+
+    if (!userId || !planId) {
+      throw new ValidationError('userId and planId are required');
+    }
+
+    const parseResult = userIdSchema.safeParse(userId);
+    if (!parseResult.success) {
+      throw new ValidationError('Invalid userId format');
+    }
+
+    // Check if in beta mode
+    if (MVP_CONFIG.IS_BETA_MODE) {
+      return success(res, {
+        success: false,
+        message: 'Subscriptions are disabled during beta. You have access to all features!',
+        isBetaMode: true,
+        checkoutUrl: null,
+      });
+    }
+
+    // Validate plan
+    const plan = SUBSCRIPTION_PLANS[planId as keyof typeof SUBSCRIPTION_PLANS];
+    if (!plan) {
+      throw new ValidationError(`Invalid plan: ${planId}`);
+    }
+
+    // TODO: Integrate with Stripe/Square
+    return success(res, {
+      success: true,
+      message: 'Subscription integration coming soon',
+      plan: {
+        id: plan.id,
+        name: plan.name,
+        price: plan.price,
+      },
+      checkoutUrl: null,
+      sessionId: null,
+      paymentProvider: null,
+    });
+  })
+);
+
+/**
+ * GET /api/v1/users/usage
+ * Get detailed usage statistics
+ */
+router.get(
+  '/usage',
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = req.query['userId'] as string;
+    const period = (req.query['period'] as string) || '30d'; // 7d, 30d, all
+
+    if (!userId) {
+      throw new ValidationError('userId query parameter is required');
+    }
+
+    const parseResult = userIdSchema.safeParse(userId);
+    if (!parseResult.success) {
+      throw new ValidationError('Invalid userId format');
+    }
+
+    const supabase = getServiceClient();
+
+    // Calculate date range
+    let startDate: Date | null = null;
+    if (period === '7d') {
+      startDate = new Date();
+      startDate.setDate(startDate.getDate() - 7);
+    } else if (period === '30d') {
+      startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30);
+    }
+
+    // Get generation history
+    let query = supabase
+      .from(TABLES.GENERATION_HISTORY)
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (startDate) {
+      query = query.gte('created_at', startDate.toISOString());
+    }
+
+    const { data: generations, error } = await query;
+
+    if (error) {
+      throw new DatabaseError(`Failed to fetch usage: ${error.message}`);
+    }
+
+    const entries = generations || [];
+
+    // Calculate stats
+    const videosGenerated = entries.filter((e) => e.generation_type === 'video').length;
+    const screenplaysGenerated = entries.filter((e) => e.generation_type === 'screenplay').length;
+    const creditsUsed = entries.reduce((sum, e) => sum + (e.credits_used || 0), 0);
+    const successfulVideos = entries.filter(
+      (e) => e.generation_type === 'video' && e.status === 'completed'
+    ).length;
+    const failedVideos = entries.filter(
+      (e) => e.generation_type === 'video' && e.status === 'failed'
+    ).length;
+
+    return success(res, {
+      usage: {
+        period,
+        videosGenerated,
+        screenplaysGenerated,
+        creditsUsed,
+        successRate:
+          videosGenerated > 0 ? Math.round((successfulVideos / videosGenerated) * 100) : 100,
+
+        breakdown: {
+          completed: successfulVideos,
+          failed: failedVideos,
+          pending: entries.filter((e) => e.status === 'pending' || e.status === 'processing')
+            .length,
+        },
+
+        // Recent activity
+        recentGenerations: entries.slice(0, 10).map((e) => ({
+          id: e.id,
+          type: e.generation_type,
+          status: e.status,
+          format: e.format,
+          creditsUsed: e.credits_used,
+          createdAt: e.created_at,
+          projectName: e.project_name,
+        })),
+      },
     });
   })
 );
