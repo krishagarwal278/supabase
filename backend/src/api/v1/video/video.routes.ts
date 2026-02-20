@@ -8,7 +8,7 @@ import { Router, Request, Response } from 'express';
 import { ValidationError } from '@/lib/errors';
 import { success } from '@/lib/response';
 import { asyncHandler } from '@/middleware/error-handler';
-import { videoService, projectService } from '@/services';
+import { videoService, projectService, chatService } from '@/services';
 import {
   videoGenerationRequestSchema,
   enhanceScreenplayRequestSchema,
@@ -56,10 +56,17 @@ router.post(
       throw validated.error;
     }
 
-    const result = await videoService.enhanceScreenplay(validated.data);
+    // Extract userId from body if provided (for version tracking)
+    const userId = req.body.userId as string | undefined;
+
+    const result = await videoService.enhanceScreenplay({
+      ...validated.data,
+      userId,
+    });
 
     return success(res, {
       screenplay: result.screenplay,
+      version: result.version,
       message: 'Screenplay enhanced successfully',
     });
   })
@@ -203,6 +210,57 @@ router.delete(
     await projectService.deleteProject(idResult.data);
 
     return success(res, { message: 'Project deleted successfully' });
+  })
+);
+
+// =============================================================================
+// Screenplay Versioning
+// =============================================================================
+
+/**
+ * GET /api/v1/video/project/:id/versions
+ * Get all screenplay versions for a project
+ */
+router.get(
+  '/project/:id/versions',
+  asyncHandler(async (req: Request, res: Response) => {
+    const idResult = uuidSchema.safeParse(req.params['id']);
+
+    if (!idResult.success) {
+      throw new ValidationError('Invalid project ID format');
+    }
+
+    const versions = await chatService.getScreenplayVersions(idResult.data);
+
+    return success(res, { versions });
+  })
+);
+
+/**
+ * GET /api/v1/video/project/:id/versions/:version
+ * Get a specific screenplay version
+ */
+router.get(
+  '/project/:id/versions/:version',
+  asyncHandler(async (req: Request, res: Response) => {
+    const idResult = uuidSchema.safeParse(req.params['id']);
+    const version = parseInt(req.params['version']);
+
+    if (!idResult.success) {
+      throw new ValidationError('Invalid project ID format');
+    }
+
+    if (isNaN(version) || version < 1) {
+      throw new ValidationError('Invalid version number');
+    }
+
+    const versionData = await chatService.getScreenplayVersion(idResult.data, version);
+
+    if (!versionData) {
+      throw new ValidationError('Version not found');
+    }
+
+    return success(res, versionData);
   })
 );
 

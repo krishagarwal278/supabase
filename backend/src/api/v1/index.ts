@@ -5,6 +5,7 @@
  */
 
 import { Router } from 'express';
+import chatRoutes from './chat/chat.routes';
 import creditsRoutes from './credits/credits.routes';
 import healthRoutes from './health/health.routes';
 import historyRoutes from './history/history.routes';
@@ -17,6 +18,7 @@ const router = Router();
 // Mount routes
 router.use('/projects', projectsRoutes);
 router.use('/video', videoRoutes);
+router.use('/chat', chatRoutes);
 router.use('/credits', creditsRoutes);
 router.use('/history', historyRoutes);
 router.use('/users', usersRoutes);

@@ -11,3 +11,4 @@ export * as projectService from './project.service';
 export * as videoService from './video.service';
 export * as creditsService from './credits.service';
 export * as historyService from './history.service';
+export * as chatService from './chat.service';

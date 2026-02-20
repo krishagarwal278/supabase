@@ -5,6 +5,7 @@
  * Orchestrates OpenAI and Runway services.
  */
 
+import * as chatService from './chat.service';
 import * as creditsService from './credits.service';
 import * as falService from './fal.service';
 import * as historyService from './history.service';
@@ -80,9 +81,9 @@ export async function generateScreenplay(
  * Enhance an existing screenplay with feedback
  */
 export async function enhanceScreenplay(
-  request: EnhanceScreenplayRequest
-): Promise<{ screenplay: Screenplay }> {
-  const { projectId, screenplay, feedback } = request;
+  request: EnhanceScreenplayRequest & { userId?: string }
+): Promise<{ screenplay: Screenplay; version?: number }> {
+  const { projectId, screenplay, feedback, userId } = request;
 
   serviceLogger.info('Enhancing screenplay', {
     title: screenplay.title,
@@ -94,7 +95,23 @@ export async function enhanceScreenplay(
   // Store enhanced version
   await storeEnhancedScreenplayInHistory(projectId, enhanced);
 
-  return { screenplay: enhanced };
+  // Save version if we have project and user context
+  let version: number | undefined;
+  if (projectId && userId) {
+    try {
+      const versionResult = await chatService.saveScreenplayVersion({
+        projectId,
+        userId,
+        screenplay: enhanced as unknown as Record<string, unknown>,
+        changeSummary: feedback.substring(0, 200),
+      });
+      version = versionResult.version;
+    } catch (error) {
+      serviceLogger.warn('Failed to save screenplay version', { error });
+    }
+  }
+
+  return { screenplay: enhanced, version };
 }
 
 /**
