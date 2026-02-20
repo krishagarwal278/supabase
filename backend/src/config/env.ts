@@ -26,6 +26,9 @@ const envSchema = z.object({
   // Runway ML (optional - video generation)
   RUNWAY_API_KEY: z.string().optional(),
 
+  // Fal AI (optional - video generation with Ovi model)
+  FAL_AI_API_KEY: z.string().optional(),
+
   // Logging
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 
@@ -57,6 +60,7 @@ function buildEnvObject(): Record<string, string | undefined> {
     SUPABASE_ANON_KEY: getEnvValue('SUPABASE_ANON_KEY'),
     OPENAI_API_KEY: process.env['OPENAI_API_KEY'],
     RUNWAY_API_KEY: process.env['RUNWAY_API_KEY'],
+    FAL_AI_API_KEY: process.env['FAL_AI_API_KEY'],
     LOG_LEVEL: process.env['LOG_LEVEL'],
     CORS_ORIGIN: process.env['CORS_ORIGIN'],
     RATE_LIMIT_WINDOW_MS: process.env['RATE_LIMIT_WINDOW_MS'],
