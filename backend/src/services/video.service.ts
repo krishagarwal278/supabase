@@ -5,12 +5,14 @@
  * Orchestrates OpenAI and Runway services.
  */
 
+import * as creditsService from './credits.service';
+import * as falService from './fal.service';
+import * as historyService from './history.service';
 import * as openaiService from './openai.service';
 import * as projectService from './project.service';
-import * as runwayService from './runway.service';
 import { TABLES, PROJECT_STATUS } from '@/config/constants';
 import { getServiceClient } from '@/lib/database';
-import { DatabaseError } from '@/lib/errors';
+import { DatabaseError, ValidationError, InsufficientCreditsError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
 import {
   VideoGenerationRequest,
@@ -97,6 +99,7 @@ export async function enhanceScreenplay(
 
 /**
  * Generate video from screenplay
+ * Checks credits before generation and deducts on success
  */
 export async function generateVideo(request: GenerateVideoRequest): Promise<{
   videoId: string;
@@ -105,50 +108,140 @@ export async function generateVideo(request: GenerateVideoRequest): Promise<{
   videoUrls?: string[];
   clipCount: number;
   progress: number;
+  creditsUsed: number;
+  remainingCredits: number;
 }> {
-  const { projectId, screenplay, userId } = request;
+  const { projectId, screenplay, userId: rawUserId } = request;
+
+  // Validate userId is present for credit tracking
+  if (!rawUserId) {
+    throw new ValidationError('User ID is required for video generation');
+  }
+  const userId = rawUserId;
+
+  // Get project name for history
+  let projectName = screenplay.title || 'Untitled Video';
+  if (projectId) {
+    try {
+      const project = await projectService.getProjectById(projectId);
+      if (project) {
+        projectName = project.name;
+      }
+    } catch {
+      // Use screenplay title as fallback
+    }
+  }
+
+  // Calculate credit cost based on format
+  const creditCost = creditsService.getVideoCreditCost(screenplay.format);
 
   serviceLogger.info('Starting video generation', {
     projectId,
     title: screenplay.title,
     sceneCount: screenplay.scenes.length,
+    creditCost,
+    userId,
   });
+
+  // Check if user has enough credits with detailed info
+  const creditCheck = await creditsService.checkCreditsWithDetails(userId, creditCost);
+  if (!creditCheck.hasEnough) {
+    const error = creditCheck.error!;
+    serviceLogger.warn('Insufficient credits for video generation', {
+      userId,
+      required: error.required,
+      available: error.available,
+    });
+
+    throw new InsufficientCreditsError(
+      error.required,
+      error.available,
+      error.suggestedPackage || undefined
+    );
+  }
+
+  // Create history entry (pending)
+  const historyEntry = await historyService.createHistoryEntry({
+    userId,
+    projectId: projectId || undefined,
+    projectName,
+    generationType: 'video',
+    format: screenplay.format,
+    duration: screenplay.totalDuration,
+    creditsUsed: creditCost,
+    metadata: {
+      sceneCount: screenplay.scenes.length,
+      voiceoverStyle: screenplay.voiceoverStyle,
+    },
+  });
+
+  const historyEntryId = historyEntry.id;
 
   // Store generation request
   const requestId = await storeVideoGenerationRequest(userId, projectId, screenplay);
 
-  // Generate video using Runway
-  const result = await runwayService.generateVideoFromScreenplay(screenplay, (progress, status) => {
-    serviceLogger.debug('Video progress', { progress, status });
-  });
+  try {
+    // Mark as processing
+    await historyService.markAsProcessing(historyEntryId);
 
-  // Store result
-  await storeVideoGenerationResult(userId, requestId, projectId, result);
+    // Generate video using Fal AI (Ovi model)
+    const result = await falService.generateVideoFromScreenplay(screenplay, (progress, status) => {
+      serviceLogger.debug('Video progress', { progress, status });
+    });
 
-  // Update project if successful
-  if (result.videoUrl && projectId) {
-    try {
-      await projectService.updateProjectStatus(projectId, PROJECT_STATUS.COMPLETED);
-    } catch (error) {
-      serviceLogger.warn('Failed to update project status', { projectId, error });
+    // Store result
+    await storeVideoGenerationResult(userId, requestId, projectId, result);
+
+    // Deduct credits on successful generation
+    const deductResult = await creditsService.deductCredits(
+      userId,
+      creditCost,
+      'video_generation',
+      `Video generation: ${projectName}`,
+      historyEntryId
+    );
+
+    // Update history entry based on result
+    if (result.videoUrl) {
+      await historyService.markAsCompleted(historyEntryId, result.videoUrl);
     }
-  }
 
-  return {
-    videoId: result.videoId,
-    status: result.status,
-    videoUrl: result.videoUrl,
-    videoUrls: result.videoUrls,
-    clipCount: result.videoUrls?.length || 1,
-    progress: result.progress,
-  };
+    // Update project if successful
+    if (result.videoUrl && projectId) {
+      try {
+        await projectService.updateProjectStatus(projectId, PROJECT_STATUS.COMPLETED);
+      } catch (error) {
+        serviceLogger.warn('Failed to update project status', { projectId, error });
+      }
+    }
+
+    return {
+      videoId: result.videoId,
+      status: result.status,
+      videoUrl: result.videoUrl,
+      videoUrls: result.videoUrls,
+      clipCount: result.videoUrls?.length || 1,
+      progress: result.progress,
+      creditsUsed: creditCost,
+      remainingCredits: deductResult.remainingCredits,
+    };
+  } catch (error) {
+    // Mark history as failed
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    await historyService.markAsFailed(historyEntryId, errorMessage);
+
+    // Note: Credits are NOT deducted on failure
+    serviceLogger.error('Video generation failed', { error: errorMessage, historyEntryId });
+
+    throw error;
+  }
 }
 
 /**
  * Check video generation status
  */
 export async function checkVideoStatus(videoId: string): Promise<VideoGenerationResult> {
-  return runwayService.checkVideoStatus(videoId);
+  return falService.checkVideoStatus(videoId);
 }
 
 /**

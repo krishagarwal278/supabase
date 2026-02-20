@@ -122,6 +122,31 @@ export class RateLimitError extends AppError {
 }
 
 /**
+ * 402 Payment Required - Insufficient credits
+ */
+export class InsufficientCreditsError extends AppError {
+  readonly statusCode = 402; // Payment Required
+  readonly code = 'INSUFFICIENT_CREDITS';
+
+  constructor(
+    public readonly required: number,
+    public readonly available: number,
+    public readonly suggestedPackage?: {
+      id: string;
+      name: string;
+      credits: number;
+      price: number;
+    }
+  ) {
+    super(`Insufficient credits. You need ${required} credits but only have ${available}.`, {
+      required,
+      available,
+      suggestedPackage,
+    });
+  }
+}
+
+/**
  * 500 Internal Server Error - Unexpected server error
  */
 export class InternalError extends AppError {

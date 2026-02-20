@@ -4,7 +4,8 @@
  * Database model types matching Supabase schema.
  */
 
-import { VideoFormat, ProjectStatus, Screenplay } from './api';
+import type { VideoFormat, ProjectStatus, Screenplay } from './api';
+export type { VideoFormat } from './api';
 
 /**
  * Project model
@@ -96,4 +97,89 @@ export interface VideoGenerationResponse {
   status: ProjectStatus;
   message: string;
   estimatedCompletionTime?: number;
+}
+
+// =============================================================================
+// Credits & Generation History Types
+// =============================================================================
+
+/**
+ * User credits model
+ */
+export interface UserCredits {
+  id: string;
+  user_id: string;
+  total_credits: number;
+  used_credits: number;
+  plan_type: 'free' | 'starter' | 'pro' | 'enterprise';
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Credit transaction types
+ */
+export type CreditTransactionType =
+  | 'video_generation'
+  | 'credit_purchase'
+  | 'bonus_credits'
+  | 'refund'
+  | 'subscription_renewal'
+  | 'subscription'
+  | 'purchase'
+  | 'admin_adjustment';
+
+/**
+ * Credit transaction model
+ */
+export interface CreditTransaction {
+  id: string;
+  user_id: string;
+  amount: number;
+  transaction_type: CreditTransactionType;
+  description: string;
+  reference_id?: string;
+  created_at: string;
+}
+
+/**
+ * Generation history entry
+ */
+export interface GenerationHistoryEntry {
+  id: string;
+  user_id: string;
+  project_id: string | null;
+  project_name: string;
+  generation_type: 'screenplay' | 'video' | 'enhancement';
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  credits_used: number;
+  format: VideoFormat;
+  duration: number;
+  thumbnail_url: string | null;
+  video_url: string | null;
+  error_message: string | null;
+  metadata: Record<string, unknown>;
+  started_at: string;
+  completed_at: string | null;
+  created_at: string;
+}
+
+/**
+ * Credits summary for API response
+ */
+export interface CreditsSummary {
+  totalCredits: number;
+  usedCredits: number;
+  remainingCredits: number;
+  planType: string;
+  recentTransactions: CreditTransaction[];
+}
+
+/**
+ * Generation history summary for API response
+ */
+export interface GenerationHistorySummary {
+  entries: GenerationHistoryEntry[];
+  totalGenerations: number;
+  totalCreditsUsed: number;
 }

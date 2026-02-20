@@ -25,6 +25,7 @@
     "prepare": "cd .. && husky backend/.husky || true"
   },
   "dependencies": {
+    "@fal-ai/client": "^1.9.2",
     "@runwayml/sdk": "^3.11.0",
     "@supabase/supabase-js": "^2.47.0",
     "cors": "^2.8.5",
