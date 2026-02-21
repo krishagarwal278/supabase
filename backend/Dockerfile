@@ -2,6 +2,7 @@
 # Production Dockerfile for Content Creator Backend
 # =============================================================================
 # Multi-stage build for minimal production image
+# Note: Build context should be the backend/ directory
 
 # -----------------------------------------------------------------------------
 # Stage 1: Dependencies
@@ -11,13 +12,13 @@ FROM node:20-alpine AS deps
 WORKDIR /app
 
 # Install dependencies needed for native modules
-RUN apk add --no-cache libc6-compat
+RUN apk add --no-cache libc6-compat python3 make g++
 
-# Copy package files
-COPY package.json package-lock.json* ./
+# Copy package files from backend directory
+COPY backend/package.json backend/package-lock.json* ./
 
 # Install production dependencies only
-RUN npm ci --only=production && npm cache clean --force
+RUN npm ci --omit=dev && npm cache clean --force
 
 # -----------------------------------------------------------------------------
 # Stage 2: Builder
@@ -26,15 +27,18 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Install build dependencies
+RUN apk add --no-cache python3 make g++
+
 # Copy package files
-COPY package.json package-lock.json* ./
+COPY backend/package.json backend/package-lock.json* ./
 
 # Install all dependencies (including dev)
 RUN npm ci
 
 # Copy source code
-COPY tsconfig.json ./
-COPY src ./src
+COPY backend/tsconfig.json ./
+COPY backend/src ./src
 
 # Build the application
 RUN npm run build
