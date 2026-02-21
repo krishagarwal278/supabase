@@ -19,6 +19,7 @@ export const TABLES = {
   CREDIT_TRANSACTIONS: 'credit_transactions',
   GENERATION_HISTORY: 'generation_history',
   USER_PREFERENCES: 'user_preferences',
+  INTEREST_SUBMISSIONS: 'interest_submissions',
 } as const;
 
 /**

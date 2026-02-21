@@ -183,3 +183,60 @@ export interface GenerationHistorySummary {
   totalGenerations: number;
   totalCreditsUsed: number;
 }
+
+// =============================================================================
+// Interest Submissions (Waitlist) Types
+// =============================================================================
+
+/**
+ * Interest submission status
+ */
+export type InterestSubmissionStatus = 'pending' | 'approved' | 'rejected';
+
+/**
+ * Interest submission database row
+ */
+export interface InterestSubmissionRow {
+  id: string;
+  full_name: string;
+  email: string;
+  phone: string | null;
+  status: InterestSubmissionStatus;
+  is_beta_user: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Interest submission API response format
+ */
+export interface InterestSubmission {
+  id: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  status: InterestSubmissionStatus;
+  isBetaUser: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+/**
+ * Interest form data (for submission)
+ */
+export interface InterestFormData {
+  fullName: string;
+  email: string;
+  phone?: string;
+}
+
+/**
+ * Interest statistics
+ */
+export interface InterestStats {
+  total: number;
+  pending: number;
+  approved: number;
+  rejected?: number;
+  betaUsers: number;
+}
