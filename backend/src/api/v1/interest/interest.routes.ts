@@ -17,10 +17,52 @@ const router = Router();
 // Schemas
 // =============================================================================
 
+// Enum values for validation
+const userRoles = [
+  'student',
+  'self_learner',
+  'educator',
+  'content_creator',
+  'professional',
+  'developer',
+  'other',
+] as const;
+
+const earlyAccessPriorities = ['very_interested', 'somewhat_interested', 'just_exploring'] as const;
+
+const videoTopics = [
+  'technical_skills',
+  'business_finance',
+  'academic',
+  'creative_skills',
+  'language_learning',
+  'career_prep',
+  'personal_development',
+] as const;
+
+const useCases = [
+  'create_learning_videos',
+  'summarize_concepts',
+  'study_faster',
+  'build_courses',
+  'content_creation',
+  'experimenting',
+] as const;
+
+const aiExperienceLevels = ['beginner', 'intermediate', 'advanced', 'power_user'] as const;
+
 const submitInterestSchema = z.object({
+  // Required fields
   fullName: z.string().min(1, 'Full name is required').max(100),
   email: z.string().email('Invalid email address'),
-  phone: z.string().optional(),
+  role: z.enum(userRoles, { errorMap: () => ({ message: 'Please select a valid role' }) }),
+  earlyAccessPriority: z.enum(earlyAccessPriorities, {
+    errorMap: () => ({ message: 'Please select your interest level' }),
+  }),
+  // Optional fields
+  videoTopics: z.array(z.enum(videoTopics)).optional(),
+  useCase: z.enum(useCases).optional(),
+  aiExperience: z.enum(aiExperienceLevels).optional(),
 });
 
 const updateStatusSchema = z.object({

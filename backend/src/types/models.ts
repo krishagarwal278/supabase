@@ -194,13 +194,62 @@ export interface GenerationHistorySummary {
 export type InterestSubmissionStatus = 'pending' | 'approved' | 'rejected';
 
 /**
+ * User role options for interest form
+ */
+export type InterestUserRole =
+  | 'student'
+  | 'self_learner'
+  | 'educator'
+  | 'content_creator'
+  | 'professional'
+  | 'developer'
+  | 'other';
+
+/**
+ * Early access priority/interest level
+ */
+export type EarlyAccessPriority = 'very_interested' | 'somewhat_interested' | 'just_exploring';
+
+/**
+ * Video topics of interest
+ */
+export type VideoTopic =
+  | 'technical_skills'
+  | 'business_finance'
+  | 'academic'
+  | 'creative_skills'
+  | 'language_learning'
+  | 'career_prep'
+  | 'personal_development';
+
+/**
+ * Use case options
+ */
+export type UseCase =
+  | 'create_learning_videos'
+  | 'summarize_concepts'
+  | 'study_faster'
+  | 'build_courses'
+  | 'content_creation'
+  | 'experimenting';
+
+/**
+ * AI experience level
+ */
+export type AiExperience = 'beginner' | 'intermediate' | 'advanced' | 'power_user';
+
+/**
  * Interest submission database row
  */
 export interface InterestSubmissionRow {
   id: string;
   full_name: string;
   email: string;
-  phone: string | null;
+  role: InterestUserRole;
+  early_access_priority: EarlyAccessPriority;
+  video_topics: VideoTopic[] | null;
+  use_case: UseCase | null;
+  ai_experience: AiExperience | null;
   status: InterestSubmissionStatus;
   is_beta_user: boolean;
   created_at: string;
@@ -214,7 +263,11 @@ export interface InterestSubmission {
   id: string;
   fullName: string;
   email: string;
-  phone: string | null;
+  role: InterestUserRole;
+  earlyAccessPriority: EarlyAccessPriority;
+  videoTopics: VideoTopic[] | null;
+  useCase: UseCase | null;
+  aiExperience: AiExperience | null;
   status: InterestSubmissionStatus;
   isBetaUser: boolean;
   createdAt: string;
@@ -227,7 +280,11 @@ export interface InterestSubmission {
 export interface InterestFormData {
   fullName: string;
   email: string;
-  phone?: string;
+  role: InterestUserRole;
+  earlyAccessPriority: EarlyAccessPriority;
+  videoTopics?: VideoTopic[];
+  useCase?: UseCase;
+  aiExperience?: AiExperience;
 }
 
 /**
@@ -239,6 +296,8 @@ export interface InterestStats {
   approved: number;
   rejected?: number;
   betaUsers: number;
+  byRole?: Record<InterestUserRole, number>;
+  byPriority?: Record<EarlyAccessPriority, number>;
 }
 
 // =============================================================================
