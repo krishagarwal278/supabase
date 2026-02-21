@@ -11,7 +11,9 @@ import * as falService from './fal.service';
 import * as historyService from './history.service';
 import * as openaiService from './openai.service';
 import * as projectService from './project.service';
-import { TABLES, PROJECT_STATUS } from '@/config/constants';
+import * as rateLimitService from './ratelimit.service';
+import * as rolesService from './roles.service';
+import { TABLES, PROJECT_STATUS, RATE_LIMIT_ACTIONS, USER_ROLES } from '@/config/constants';
 import { getServiceClient } from '@/lib/database';
 import { DatabaseError, ValidationError, InsufficientCreditsError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
@@ -21,16 +23,17 @@ import {
   GenerateVideoRequest,
   Screenplay,
 } from '@/types/api';
-import { VideoGenerationResult, VideoGenerationResponse } from '@/types/models';
+import { VideoGenerationResult, VideoGenerationResponse, RateLimitInfo } from '@/types/models';
 
 const serviceLogger = logger.child({ service: 'video' });
 
 /**
  * Generate screenplay from a topic
+ * Includes rate limiting check (screenplays are free but rate-limited)
  */
 export async function generateScreenplay(
   request: VideoGenerationRequest
-): Promise<VideoGenerationResponse> {
+): Promise<VideoGenerationResponse & { rateLimitInfo?: RateLimitInfo }> {
   const { projectId, format, targetDuration, topic, enableVoiceover, userId } = request;
 
   const duration = targetDuration || 30;
@@ -41,6 +44,11 @@ export async function generateScreenplay(
     duration,
     userId,
   });
+
+  // Check rate limit for screenplay generation (free but limited)
+  if (userId) {
+    await rateLimitService.enforceRateLimit(userId, RATE_LIMIT_ACTIONS.SCREENPLAY_GENERATION);
+  }
 
   // Generate screenplay using OpenAI
   const screenplay = await openaiService.generateScreenplay(
@@ -55,6 +63,11 @@ export async function generateScreenplay(
     sceneCount: screenplay.scenes.length,
   });
 
+  // Log action for rate limiting
+  if (userId) {
+    await rateLimitService.logAction(userId, RATE_LIMIT_ACTIONS.SCREENPLAY_GENERATION);
+  }
+
   // Store screenplay in chat_history
   await storeScreenplayInHistory(userId, projectId, screenplay);
 
@@ -67,6 +80,15 @@ export async function generateScreenplay(
     }
   }
 
+  // Get rate limit info for response headers
+  let rateLimitInfo: RateLimitInfo | undefined;
+  if (userId) {
+    rateLimitInfo = await rateLimitService.getRateLimitHeaders(
+      userId,
+      RATE_LIMIT_ACTIONS.SCREENPLAY_GENERATION
+    );
+  }
+
   return {
     success: true,
     projectId: projectId || `screenplay_${Date.now()}`,
@@ -74,6 +96,7 @@ export async function generateScreenplay(
     status: PROJECT_STATUS.SCREENPLAY_GENERATED,
     message: 'Screenplay generated successfully. Ready for video processing.',
     estimatedCompletionTime: duration * 2,
+    rateLimitInfo,
   };
 }
 
@@ -116,7 +139,8 @@ export async function enhanceScreenplay(
 
 /**
  * Generate video from screenplay
- * Checks credits before generation and deducts on success
+ * Checks credits AND rate limits before generation
+ * Deducts credits on success, logs action for rate limiting
  */
 export async function generateVideo(request: GenerateVideoRequest): Promise<{
   videoId: string;
@@ -127,6 +151,7 @@ export async function generateVideo(request: GenerateVideoRequest): Promise<{
   progress: number;
   creditsUsed: number;
   remainingCredits: number;
+  rateLimitInfo?: RateLimitInfo;
 }> {
   const { projectId, screenplay, userId: rawUserId } = request;
 
@@ -135,6 +160,9 @@ export async function generateVideo(request: GenerateVideoRequest): Promise<{
     throw new ValidationError('User ID is required for video generation');
   }
   const userId = rawUserId;
+
+  // Get user role for logging
+  const userRole = await rolesService.getUserRole(userId);
 
   // Get project name for history
   let projectName = screenplay.title || 'Untitled Video';
@@ -158,23 +186,29 @@ export async function generateVideo(request: GenerateVideoRequest): Promise<{
     sceneCount: screenplay.scenes.length,
     creditCost,
     userId,
+    userRole,
   });
 
-  // Check if user has enough credits with detailed info
-  const creditCheck = await creditsService.checkCreditsWithDetails(userId, creditCost);
-  if (!creditCheck.hasEnough) {
-    const error = creditCheck.error!;
-    serviceLogger.warn('Insufficient credits for video generation', {
-      userId,
-      required: error.required,
-      available: error.available,
-    });
+  // 1. Check rate limits first (throws RateLimitError if exceeded)
+  await rateLimitService.enforceRateLimit(userId, RATE_LIMIT_ACTIONS.VIDEO_GENERATION);
 
-    throw new InsufficientCreditsError(
-      error.required,
-      error.available,
-      error.suggestedPackage || undefined
-    );
+  // 2. Check if user has enough credits (admins bypass)
+  if (userRole !== USER_ROLES.ADMIN) {
+    const creditCheck = await creditsService.checkCreditsWithDetails(userId, creditCost);
+    if (!creditCheck.hasEnough) {
+      const error = creditCheck.error!;
+      serviceLogger.warn('Insufficient credits for video generation', {
+        userId,
+        required: error.required,
+        available: error.available,
+      });
+
+      throw new InsufficientCreditsError(
+        error.required,
+        error.available,
+        error.suggestedPackage || undefined
+      );
+    }
   }
 
   // Create history entry (pending)
@@ -185,10 +219,11 @@ export async function generateVideo(request: GenerateVideoRequest): Promise<{
     generationType: 'video',
     format: screenplay.format,
     duration: screenplay.totalDuration,
-    creditsUsed: creditCost,
+    creditsUsed: userRole === USER_ROLES.ADMIN ? 0 : creditCost,
     metadata: {
       sceneCount: screenplay.scenes.length,
       voiceoverStyle: screenplay.voiceoverStyle,
+      userRole,
     },
   });
 
@@ -209,14 +244,25 @@ export async function generateVideo(request: GenerateVideoRequest): Promise<{
     // Store result
     await storeVideoGenerationResult(userId, requestId, projectId, result);
 
-    // Deduct credits on successful generation
-    const deductResult = await creditsService.deductCredits(
-      userId,
-      creditCost,
-      'video_generation',
-      `Video generation: ${projectName}`,
-      historyEntryId
-    );
+    // 3. Deduct credits on successful generation (admins bypass)
+    let remainingCredits = 0;
+    if (userRole !== USER_ROLES.ADMIN) {
+      const deductResult = await creditsService.deductCredits(
+        userId,
+        creditCost,
+        'video_generation',
+        `Video generation: ${projectName}`,
+        historyEntryId
+      );
+      remainingCredits = deductResult.remainingCredits;
+    } else {
+      // For admins, get current balance without deducting
+      const adminCredits = await creditsService.getUserCredits(userId);
+      remainingCredits = adminCredits.total_credits - adminCredits.used_credits;
+    }
+
+    // 4. Log action for rate limiting
+    await rateLimitService.logAction(userId, RATE_LIMIT_ACTIONS.VIDEO_GENERATION);
 
     // Update history entry based on result
     if (result.videoUrl) {
@@ -232,6 +278,12 @@ export async function generateVideo(request: GenerateVideoRequest): Promise<{
       }
     }
 
+    // Get rate limit info for response
+    const rateLimitInfo = await rateLimitService.getRateLimitHeaders(
+      userId,
+      RATE_LIMIT_ACTIONS.VIDEO_GENERATION
+    );
+
     return {
       videoId: result.videoId,
       status: result.status,
@@ -239,15 +291,16 @@ export async function generateVideo(request: GenerateVideoRequest): Promise<{
       videoUrls: result.videoUrls,
       clipCount: result.videoUrls?.length || 1,
       progress: result.progress,
-      creditsUsed: creditCost,
-      remainingCredits: deductResult.remainingCredits,
+      creditsUsed: userRole === USER_ROLES.ADMIN ? 0 : creditCost,
+      remainingCredits,
+      rateLimitInfo,
     };
   } catch (error) {
     // Mark history as failed
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     await historyService.markAsFailed(historyEntryId, errorMessage);
 
-    // Note: Credits are NOT deducted on failure
+    // Note: Credits are NOT deducted on failure, and rate limit action is NOT logged
     serviceLogger.error('Video generation failed', { error: errorMessage, historyEntryId });
 
     throw error;

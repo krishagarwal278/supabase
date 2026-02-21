@@ -4,13 +4,14 @@
  * Manages user credits for video generation.
  */
 
+import * as rolesService from './roles.service';
 import {
   TABLES,
   CREDIT_COSTS,
-  DEFAULT_CREDITS,
   SUBSCRIPTION_PLANS,
   CREDIT_PACKAGES,
-  ADMIN_USERS,
+  USER_ROLES,
+  INITIAL_CREDITS_BY_ROLE,
 } from '@/config/constants';
 import { getServiceClient } from '@/lib/database';
 import { DatabaseError } from '@/lib/errors';
@@ -21,6 +22,7 @@ import type {
   CreditTransaction,
   CreditTransactionType,
   CreditsSummary,
+  UserRoleType,
 } from '@/types/models';
 
 const creditsLogger = logger.child({ service: 'credits' });
@@ -72,8 +74,9 @@ export function getVideoCreditCost(format: VideoFormat): number {
 
 /**
  * Get or create user credits record
+ * Now integrates with user roles for initial credit allocation
  */
-export async function getUserCredits(userId: string): Promise<UserCredits> {
+export async function getUserCredits(userId: string, userEmail?: string): Promise<UserCredits> {
   const supabase = getServiceClient();
 
   // Try to get existing credits
@@ -91,13 +94,18 @@ export async function getUserCredits(userId: string): Promise<UserCredits> {
   if (fetchError?.code === 'PGRST116') {
     creditsLogger.info('Creating credits for new user', { userId });
 
+    // Get user role to determine initial credits
+    const role = await rolesService.getUserRole(userId, userEmail);
+    const initialCredits = INITIAL_CREDITS_BY_ROLE[role];
+    const planType = role === USER_ROLES.BETA_TESTER ? 'beta' : 'free';
+
     const { data: newCredits, error: createError } = await supabase
       .from(TABLES.USER_CREDITS)
       .insert({
         user_id: userId,
-        total_credits: DEFAULT_CREDITS.free,
+        total_credits: initialCredits,
         used_credits: 0,
-        plan_type: 'free',
+        plan_type: planType,
       })
       .select()
       .single();
@@ -107,7 +115,15 @@ export async function getUserCredits(userId: string): Promise<UserCredits> {
     }
 
     // Record the initial credit bonus
-    await recordTransaction(userId, DEFAULT_CREDITS.free, 'bonus_credits', 'Welcome bonus credits');
+    if (initialCredits > 0) {
+      const description =
+        role === USER_ROLES.BETA_TESTER
+          ? 'Beta tester welcome credits'
+          : role === USER_ROLES.ADMIN
+            ? 'Admin credits'
+            : 'Welcome bonus credits';
+      await recordTransaction(userId, initialCredits, 'bonus_credits', description);
+    }
 
     return newCredits as UserCredits;
   }
@@ -120,11 +136,14 @@ export async function getUserCredits(userId: string): Promise<UserCredits> {
 }
 
 /**
- * Get credits summary for a user
+ * Get credits summary for a user (with role info)
  */
-export async function getCreditsSummary(userId: string): Promise<CreditsSummary> {
+export async function getCreditsSummary(
+  userId: string
+): Promise<CreditsSummary & { role: UserRoleType }> {
   const credits = await getUserCredits(userId);
   const transactions = await getRecentTransactions(userId, 10);
+  const role = await rolesService.getUserRole(userId);
 
   return {
     totalCredits: credits.total_credits,
@@ -132,6 +151,7 @@ export async function getCreditsSummary(userId: string): Promise<CreditsSummary>
     remainingCredits: credits.total_credits - credits.used_credits,
     planType: credits.plan_type,
     recentTransactions: transactions,
+    role,
   };
 }
 
@@ -303,16 +323,18 @@ export async function getTransactionHistory(
 // =============================================================================
 
 /**
- * Check if a user is an admin
+ * Check if a user is an admin (synchronous, env-based only)
+ * For async check that includes database, use rolesService.isAdmin()
  */
 export function isAdmin(userId: string, userEmail?: string): boolean {
-  if (ADMIN_USERS.userIds.includes(userId)) {
-    return true;
-  }
-  if (userEmail && ADMIN_USERS.emails.includes(userEmail)) {
-    return true;
-  }
-  return false;
+  return rolesService.isEnvAdmin(userId, userEmail);
+}
+
+/**
+ * Check if a user is an admin (async, includes database check)
+ */
+export async function isAdminAsync(userId: string, userEmail?: string): Promise<boolean> {
+  return rolesService.isAdmin(userId, userEmail);
 }
 
 /**

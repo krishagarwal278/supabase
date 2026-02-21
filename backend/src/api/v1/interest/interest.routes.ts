@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { interestService } from '@/api/interest-service';
 import { ValidationError } from '@/lib/errors';
 import { success } from '@/lib/response';
-import { asyncHandler } from '@/middleware/error-handler';
+import { asyncHandler, authenticate, requireAdmin } from '@/middleware';
 
 const router = Router();
 
@@ -68,7 +68,7 @@ router.get(
 );
 
 // =============================================================================
-// Admin Endpoints
+// Admin Endpoints (require authentication + admin role)
 // =============================================================================
 
 /**
@@ -77,6 +77,8 @@ router.get(
  */
 router.get(
   '/submissions',
+  authenticate,
+  requireAdmin,
   asyncHandler(async (_req: Request, res: Response) => {
     const submissions = await interestService.getInterestSubmissions();
 
@@ -90,6 +92,8 @@ router.get(
  */
 router.get(
   '/submissions/:id',
+  authenticate,
+  requireAdmin,
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
 
@@ -113,6 +117,8 @@ router.get(
  */
 router.patch(
   '/submissions/:id',
+  authenticate,
+  requireAdmin,
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
 
@@ -145,6 +151,8 @@ router.patch(
  */
 router.delete(
   '/submissions/:id',
+  authenticate,
+  requireAdmin,
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
 

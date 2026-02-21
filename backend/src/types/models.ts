@@ -240,3 +240,77 @@ export interface InterestStats {
   rejected?: number;
   betaUsers: number;
 }
+
+// =============================================================================
+// User Roles Types
+// =============================================================================
+
+/**
+ * User role type
+ */
+export type UserRoleType = 'user' | 'beta_tester' | 'admin';
+
+/**
+ * User role database row
+ */
+export interface UserRoleRow {
+  user_id: string;
+  role: UserRoleType;
+  granted_at: string;
+  granted_by: string | null;
+  beta_expires_at: string | null;
+}
+
+/**
+ * User role API response
+ */
+export interface UserRoleInfo {
+  userId: string;
+  role: UserRoleType;
+  grantedAt: string;
+  grantedBy: string | null;
+  betaExpiresAt: string | null;
+  isBetaExpired: boolean;
+}
+
+// =============================================================================
+// Rate Limiting Types
+// =============================================================================
+
+/**
+ * Rate limit action type
+ */
+export type RateLimitActionType =
+  | 'video_generation'
+  | 'screenplay_generation'
+  | 'screenplay_enhancement';
+
+/**
+ * Rate limit tracking row
+ */
+export interface RateLimitTrackingRow {
+  id: string;
+  user_id: string;
+  action_type: RateLimitActionType;
+  created_at: string;
+}
+
+/**
+ * Rate limit check result
+ */
+export interface RateLimitCheckResult {
+  allowed: boolean;
+  limit: number;
+  remaining: number;
+  resetAt: string;
+  periodType: 'hourly' | 'daily' | 'period';
+}
+
+/**
+ * Rate limit info for API headers
+ */
+export interface RateLimitInfo {
+  limit: number;
+  remaining: number;
+  reset: number; // Unix timestamp
+}

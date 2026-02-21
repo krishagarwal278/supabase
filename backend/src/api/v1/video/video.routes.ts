@@ -15,8 +15,20 @@ import {
   generateVideoRequestSchema,
   uuidSchema,
 } from '@/types/api';
+import type { RateLimitInfo } from '@/types/models';
 
 const router = Router();
+
+/**
+ * Helper to set rate limit headers on response
+ */
+function setRateLimitHeaders(res: Response, info?: RateLimitInfo): void {
+  if (info) {
+    res.setHeader('X-RateLimit-Limit', info.limit);
+    res.setHeader('X-RateLimit-Remaining', info.remaining);
+    res.setHeader('X-RateLimit-Reset', info.reset);
+  }
+}
 
 /**
  * POST /api/v1/video/generate
@@ -32,6 +44,9 @@ router.post(
     }
 
     const result = await videoService.generateScreenplay(validated.data);
+
+    // Set rate limit headers
+    setRateLimitHeaders(res, result.rateLimitInfo);
 
     return success(res, {
       projectId: result.projectId,
@@ -75,6 +90,7 @@ router.post(
 /**
  * POST /api/v1/video/generate-video
  * Generate actual video from screenplay
+ * Includes credit check and rate limiting
  */
 router.post(
   '/generate-video',
@@ -86,6 +102,12 @@ router.post(
     }
 
     const result = await videoService.generateVideo(validated.data);
+
+    // Set rate limit headers
+    setRateLimitHeaders(res, result.rateLimitInfo);
+
+    // Also include credits info in header
+    res.setHeader('X-Credits-Remaining', result.remainingCredits);
 
     return success(res, {
       message:
@@ -99,6 +121,8 @@ router.post(
       videoUrls: result.videoUrls,
       clipCount: result.clipCount,
       progress: result.progress,
+      creditsUsed: result.creditsUsed,
+      remainingCredits: result.remainingCredits,
     });
   })
 );

@@ -20,7 +20,20 @@ export const TABLES = {
   GENERATION_HISTORY: 'generation_history',
   USER_PREFERENCES: 'user_preferences',
   INTEREST_SUBMISSIONS: 'interest_submissions',
+  USER_ROLES: 'user_roles',
+  RATE_LIMIT_TRACKING: 'rate_limit_tracking',
 } as const;
+
+/**
+ * User roles
+ */
+export const USER_ROLES = {
+  USER: 'user',
+  BETA_TESTER: 'beta_tester',
+  ADMIN: 'admin',
+} as const;
+
+export type UserRole = (typeof USER_ROLES)[keyof typeof USER_ROLES];
 
 /**
  * Credit costs for different operations
@@ -47,6 +60,50 @@ export const MVP_CONFIG = {
   MAX_VIDEOS_PER_PERIOD: 4,
   IS_BETA_MODE: true, // Set to false when launching payments
 } as const;
+
+/**
+ * Initial credits by user role
+ */
+export const INITIAL_CREDITS_BY_ROLE = {
+  [USER_ROLES.USER]: 0, // Must purchase
+  [USER_ROLES.BETA_TESTER]: 40, // 4 videos
+  [USER_ROLES.ADMIN]: 999999, // Unlimited
+} as const;
+
+/**
+ * Rate limits configuration by role
+ */
+export const RATE_LIMITS = {
+  [USER_ROLES.BETA_TESTER]: {
+    videos_per_day: 2,
+    videos_per_period: 4, // 14 days
+    period_days: 14,
+    screenplays_per_hour: 10,
+  },
+  [USER_ROLES.USER]: {
+    videos_per_day: 10,
+    videos_per_period: 100,
+    period_days: 30,
+    screenplays_per_hour: 20,
+  },
+  [USER_ROLES.ADMIN]: {
+    videos_per_day: 999,
+    videos_per_period: 9999,
+    period_days: 30,
+    screenplays_per_hour: 999,
+  },
+} as const;
+
+/**
+ * Rate limit action types
+ */
+export const RATE_LIMIT_ACTIONS = {
+  VIDEO_GENERATION: 'video_generation',
+  SCREENPLAY_GENERATION: 'screenplay_generation',
+  SCREENPLAY_ENHANCEMENT: 'screenplay_enhancement',
+} as const;
+
+export type RateLimitAction = (typeof RATE_LIMIT_ACTIONS)[keyof typeof RATE_LIMIT_ACTIONS];
 
 /**
  * Default credits for new users by plan
