@@ -301,7 +301,7 @@ export async function checkVideoStatus(requestId: string): Promise<VideoGenerati
     return {
       videoId: requestId,
       status: statusMap[status.status] || 'in_progress',
-      progress: status.status === 'COMPLETED' ? 100 : 50,
+      progress: status.status === 'IN_PROGRESS' ? 50 : 25,
     };
   } catch (error) {
     serviceLogger.error('Error checking Fal AI status', {

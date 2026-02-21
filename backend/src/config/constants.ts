@@ -54,10 +54,10 @@ export const CREDIT_COSTS = {
  */
 export const MVP_CONFIG = {
   MAX_BETA_USERS: 20,
-  BETA_USER_CREDITS: 40, // 4 videos worth (10 credits each)
+  BETA_USER_CREDITS: 50, // 5 videos worth (10 credits each)
   BETA_PERIOD_DAYS: 14, // 2 weeks
   CREDITS_PER_VIDEO: 10,
-  MAX_VIDEOS_PER_PERIOD: 4,
+  MAX_VIDEOS_PER_PERIOD: 5, // 5 videos in 2 weeks for beta
   IS_BETA_MODE: true, // Set to false when launching payments
 } as const;
 
@@ -66,7 +66,7 @@ export const MVP_CONFIG = {
  */
 export const INITIAL_CREDITS_BY_ROLE = {
   [USER_ROLES.USER]: 0, // Must purchase
-  [USER_ROLES.BETA_TESTER]: 40, // 4 videos
+  [USER_ROLES.BETA_TESTER]: 50, // 5 videos
   [USER_ROLES.ADMIN]: 999999, // Unlimited
 } as const;
 
@@ -76,13 +76,13 @@ export const INITIAL_CREDITS_BY_ROLE = {
 export const RATE_LIMITS = {
   [USER_ROLES.BETA_TESTER]: {
     videos_per_day: 2,
-    videos_per_period: 4, // 14 days
+    videos_per_period: 5, // 5 total videos in 14 days
     period_days: 14,
     screenplays_per_hour: 10,
   },
   [USER_ROLES.USER]: {
     videos_per_day: 10,
-    videos_per_period: 100,
+    videos_per_period: 50,
     period_days: 30,
     screenplays_per_hour: 20,
   },
@@ -109,8 +109,8 @@ export type RateLimitAction = (typeof RATE_LIMIT_ACTIONS)[keyof typeof RATE_LIMI
  * Default credits for new users by plan
  */
 export const DEFAULT_CREDITS = {
-  free: 40, // MVP: 4 videos worth
-  beta: 40, // Beta testers
+  free: 50, // MVP: 5 videos worth
+  beta: 50, // Beta testers: 5 videos
   starter: 100, // 10 videos
   pro: 300, // 30 videos
   enterprise: 1000, // 100 videos
@@ -128,16 +128,16 @@ export const SUBSCRIPTION_PLANS = {
     price: 0,
     priceMonthly: 0,
     priceYearly: 0,
-    credits: 40,
-    videosIncluded: 4,
+    credits: 50,
+    videosIncluded: 5,
     features: [
-      '4 AI videos included',
+      '5 AI videos included',
       'Unlimited screenplay generation',
       'All video formats',
       'Standard quality',
       'Community support',
     ],
-    limitations: ['Limited to 4 videos total'],
+    limitations: ['Limited to 5 videos per 2-week period'],
   },
   starter: {
     id: 'starter',
