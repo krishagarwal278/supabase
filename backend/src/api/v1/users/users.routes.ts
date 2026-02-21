@@ -12,6 +12,7 @@ import {
   SUBSCRIPTION_PLANS,
   CREDIT_PACKAGES,
   CREDIT_COSTS,
+  RATE_LIMITS,
 } from '@/config/constants';
 import { getServiceClient } from '@/lib/database';
 import { DatabaseError, ValidationError } from '@/lib/errors';
@@ -19,6 +20,8 @@ import { logger } from '@/lib/logger';
 import { success } from '@/lib/response';
 import { asyncHandler } from '@/middleware/error-handler';
 import * as creditsService from '@/services/credits.service';
+import * as rateLimitService from '@/services/ratelimit.service';
+import * as rolesService from '@/services/roles.service';
 
 const router = Router();
 const userLogger = logger.child({ service: 'users' });
@@ -250,7 +253,7 @@ router.delete(
 
 /**
  * GET /api/v1/users/account
- * Get complete account info including credits, plan, and usage
+ * Get complete account info including credits, plan, role, and usage
  */
 router.get(
   '/account',
@@ -266,8 +269,14 @@ router.get(
       throw new ValidationError('Invalid userId format');
     }
 
-    // Get credits summary
+    // Get credits summary (now includes role)
     const creditsSummary = await creditsService.getCreditsSummary(userId);
+
+    // Get detailed role info
+    const roleInfo = await rolesService.getUserRoleInfo(userId);
+
+    // Get usage stats for rate limiting
+    const usageStats = await rateLimitService.getUserUsageStats(userId);
 
     // Calculate videos remaining
     const videosRemaining = Math.floor(
@@ -280,11 +289,20 @@ router.get(
       SUBSCRIPTION_PLANS[creditsSummary.planType as keyof typeof SUBSCRIPTION_PLANS] ||
       SUBSCRIPTION_PLANS.free;
 
+    // Get rate limits for user's role
+    const rateLimits = RATE_LIMITS[roleInfo.role];
+
     return success(res, {
       account: {
         planType: creditsSummary.planType,
         planName: currentPlan.name,
-        isBetaUser: MVP_CONFIG.IS_BETA_MODE,
+
+        // Role info
+        role: roleInfo.role,
+        isBetaUser: roleInfo.role === 'beta_tester',
+        isAdmin: roleInfo.role === 'admin',
+        betaExpiresAt: roleInfo.betaExpiresAt,
+        isBetaExpired: roleInfo.isBetaExpired,
 
         // Credits info
         credits: {
@@ -300,10 +318,30 @@ router.get(
           remaining: videosRemaining,
         },
 
-        // Usage limits
+        // Rate limits for this user's role
+        rateLimits: {
+          videosPerDay: rateLimits.videos_per_day,
+          videosPerPeriod: rateLimits.videos_per_period,
+          periodDays: rateLimits.period_days,
+          screenplaysPerHour: rateLimits.screenplays_per_hour,
+        },
+
+        // Current usage
+        usage: {
+          videosToday: usageStats.videosToday,
+          videosPeriod: usageStats.videosPeriod,
+          screenplaysHour: usageStats.screenplaysHour,
+          videosRemainingToday: Math.max(0, rateLimits.videos_per_day - usageStats.videosToday),
+          videosRemainingPeriod: Math.max(
+            0,
+            rateLimits.videos_per_period - usageStats.videosPeriod
+          ),
+        },
+
+        // Legacy limits (for backwards compatibility)
         limits: {
-          maxVideosPerPeriod: MVP_CONFIG.MAX_VIDEOS_PER_PERIOD,
-          periodDays: MVP_CONFIG.BETA_PERIOD_DAYS,
+          maxVideosPerPeriod: rateLimits.videos_per_period,
+          periodDays: rateLimits.period_days,
           creditsPerVideo: MVP_CONFIG.CREDITS_PER_VIDEO,
         },
 
@@ -592,6 +630,131 @@ router.get(
           createdAt: e.created_at,
           projectName: e.project_name,
         })),
+      },
+    });
+  })
+);
+
+// =============================================================================
+// ROLE MANAGEMENT ENDPOINTS
+// =============================================================================
+
+/**
+ * GET /api/v1/users/role
+ * Get user's role info
+ */
+router.get(
+  '/role',
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = req.query['userId'] as string;
+
+    if (!userId) {
+      throw new ValidationError('userId query parameter is required');
+    }
+
+    const parseResult = userIdSchema.safeParse(userId);
+    if (!parseResult.success) {
+      throw new ValidationError('Invalid userId format');
+    }
+
+    const roleInfo = await rolesService.getUserRoleInfo(userId);
+
+    return success(res, { role: roleInfo });
+  })
+);
+
+/**
+ * POST /api/v1/users/role/grant-beta
+ * Grant beta access to a user (admin only - for now, no auth check)
+ */
+router.post(
+  '/role/grant-beta',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { userId, grantedBy } = req.body;
+
+    if (!userId) {
+      throw new ValidationError('userId is required');
+    }
+
+    const parseResult = userIdSchema.safeParse(userId);
+    if (!parseResult.success) {
+      throw new ValidationError('Invalid userId format');
+    }
+
+    // Check if we can accept more beta users
+    const canAccept = await rolesService.canAcceptMoreBetaUsers();
+    if (!canAccept) {
+      throw new ValidationError(`Maximum beta users (${MVP_CONFIG.MAX_BETA_USERS}) reached`);
+    }
+
+    const roleInfo = await rolesService.grantBetaAccess(userId, grantedBy);
+
+    // Also ensure user has beta credits
+    const credits = await creditsService.getUserCredits(userId);
+    if (credits.total_credits < MVP_CONFIG.BETA_USER_CREDITS) {
+      await creditsService.addCredits(
+        userId,
+        MVP_CONFIG.BETA_USER_CREDITS - credits.total_credits,
+        'bonus_credits',
+        'Beta tester credits'
+      );
+    }
+
+    userLogger.info('Beta access granted', { userId, grantedBy });
+
+    return success(res, {
+      message: 'Beta access granted successfully',
+      role: roleInfo,
+    });
+  })
+);
+
+/**
+ * POST /api/v1/users/role/revoke-beta
+ * Revoke beta access from a user (admin only)
+ */
+router.post(
+  '/role/revoke-beta',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { userId } = req.body;
+
+    if (!userId) {
+      throw new ValidationError('userId is required');
+    }
+
+    const parseResult = userIdSchema.safeParse(userId);
+    if (!parseResult.success) {
+      throw new ValidationError('Invalid userId format');
+    }
+
+    const roleInfo = await rolesService.revokeBetaAccess(userId);
+
+    userLogger.info('Beta access revoked', { userId });
+
+    return success(res, {
+      message: 'Beta access revoked',
+      role: roleInfo,
+    });
+  })
+);
+
+/**
+ * GET /api/v1/users/beta-stats
+ * Get beta program statistics
+ */
+router.get(
+  '/beta-stats',
+  asyncHandler(async (_req: Request, res: Response) => {
+    const activeBetaUsers = await rolesService.getActiveBetaUserCount();
+    const canAcceptMore = await rolesService.canAcceptMoreBetaUsers();
+
+    return success(res, {
+      stats: {
+        activeBetaUsers,
+        maxBetaUsers: MVP_CONFIG.MAX_BETA_USERS,
+        slotsRemaining: MVP_CONFIG.MAX_BETA_USERS - activeBetaUsers,
+        canAcceptMore,
+        betaPeriodDays: MVP_CONFIG.BETA_PERIOD_DAYS,
       },
     });
   })
