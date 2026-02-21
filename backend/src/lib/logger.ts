@@ -9,8 +9,6 @@
  * - Context-aware logging
  */
 
-import { getEnv, isProduction } from '@/config/env';
-
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 interface LogContext {
@@ -40,6 +38,13 @@ const LOG_LEVELS: Record<LogLevel, number> = {
 };
 
 /**
+ * Check if running in production (safe version that doesn't throw)
+ */
+function isProductionSafe(): boolean {
+  return process.env['NODE_ENV'] === 'production';
+}
+
+/**
  * Logger class with support for structured logging
  */
 class Logger {
@@ -47,10 +52,10 @@ class Logger {
   private context: LogContext = {};
 
   constructor() {
-    try {
-      this.level = getEnv().LOG_LEVEL;
-    } catch {
-      // Env not initialized yet, use default
+    // Use process.env directly to avoid circular dependency with env.ts
+    const envLogLevel = process.env['LOG_LEVEL'] as LogLevel | undefined;
+    if (envLogLevel && LOG_LEVELS[envLogLevel] !== undefined) {
+      this.level = envLogLevel;
     }
   }
 
@@ -111,8 +116,8 @@ class Logger {
       }
     }
 
-    // Output format based on environment
-    const output = isProduction() ? this.formatJSON(entry) : this.formatPretty(entry);
+    // Output format based on environment (use safe version that doesn't require env initialization)
+    const output = isProductionSafe() ? this.formatJSON(entry) : this.formatPretty(entry);
 
     // Use appropriate console method
     switch (level) {
