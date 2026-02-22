@@ -40,7 +40,7 @@ export const mockVideoGenerationRequest: VideoGenerationRequest = {
   format: 'reel',
   targetDuration: 30,
   topic: 'Beautiful nature scenes',
-  aiModel: 'gpt-4.1',
+  aiModel: 'gpt-4o',
   enableVoiceover: true,
   enableCaptions: false,
   userId: 'user-123',

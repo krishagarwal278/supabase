@@ -90,7 +90,7 @@ export const videoGenerationRequestSchema = z.object({
   format: videoFormatSchema,
   targetDuration: z.number().int().positive().max(600).default(30),
   topic: z.string().min(1, 'Topic is required').max(1000),
-  aiModel: z.string().default('gpt-4.1'),
+  aiModel: z.string().default('gpt-4o'),
   enableVoiceover: z.boolean().default(true),
   enableCaptions: z.boolean().default(false),
   backgroundVideo: z
@@ -101,6 +101,7 @@ export const videoGenerationRequestSchema = z.object({
     })
     .optional(),
   userId: z.string().min(1, 'User ID is required'),
+  documentContent: z.string().optional(),
 });
 
 /**
@@ -110,6 +111,7 @@ export const enhanceScreenplayRequestSchema = z.object({
   projectId: uuidSchema.optional(),
   screenplay: screenplaySchema,
   feedback: z.string().min(1, 'Feedback is required').max(2000),
+  aiModel: z.string().optional(),
 });
 
 /**

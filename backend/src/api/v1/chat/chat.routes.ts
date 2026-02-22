@@ -21,6 +21,8 @@ const ideateSchema = z.object({
   message: z.string().min(1).max(2000),
   userId: z.string().min(1),
   format: z.string().optional(),
+  aiModel: z.string().optional(),
+  currentScreenplay: z.record(z.unknown()).optional(),
   context: z
     .array(
       z.object({
@@ -55,11 +57,13 @@ router.post(
       throw new ValidationError(validated.error.message);
     }
 
-    const { message, userId, format, context } = validated.data;
+    const { message, userId, format, aiModel, currentScreenplay, context } = validated.data;
 
-    // Generate ideation response
+    // Generate ideation response with AI model preference and screenplay context
     const ideation = await chatService.generateIdeation(message, {
       format,
+      aiModel,
+      currentScreenplay,
       previousMessages: context,
     });
 

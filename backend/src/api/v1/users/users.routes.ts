@@ -46,7 +46,7 @@ const preferencesSchema = z.object({
  * Default preferences for new users
  */
 const DEFAULT_PREFERENCES = {
-  defaultModel: 'gpt-4o',
+  defaultModel: 'gpt-4o', // Updated to match OPENAI_CONFIG.DEFAULT_MODEL
   defaultFormat: 'reel',
   defaultDuration: 60,
   voiceoverEnabled: true,

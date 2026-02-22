@@ -5,7 +5,7 @@
  */
 
 import OpenAI from 'openai';
-import { OPENAI_CONFIG, FORMAT_CONFIG } from '@/config/constants';
+import { OPENAI_CONFIG, FORMAT_CONFIG, getOpenAIModelName } from '@/config/constants';
 import { getEnv } from '@/config/env';
 import { ExternalServiceError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
@@ -28,29 +28,46 @@ function getClient(): OpenAI {
 
 /**
  * Generate a screenplay from a topic
+ * @param topic - The topic/subject for the video
+ * @param format - Video format (reel, short_video, etc.)
+ * @param targetDuration - Target duration in seconds
+ * @param enableVoiceover - Whether to include voiceover narration
+ * @param aiModel - Optional AI model to use (default: gpt-4o)
+ * @param documentContent - Optional extracted content from uploaded documents
  */
 export async function generateScreenplay(
   topic: string,
   format: VideoFormat,
   targetDuration: number,
-  enableVoiceover: boolean
+  enableVoiceover: boolean,
+  aiModel?: string,
+  documentContent?: string
 ): Promise<Screenplay> {
   const serviceLogger = logger.child({ service: 'openai' });
   const formatConfig = FORMAT_CONFIG[format];
+  const modelToUse = getOpenAIModelName(aiModel || OPENAI_CONFIG.DEFAULT_MODEL);
 
   const systemPrompt = buildSystemPrompt(formatConfig, format, enableVoiceover);
-  const userPrompt = buildUserPrompt(topic, format, targetDuration, enableVoiceover);
+  const userPrompt = buildUserPrompt(
+    topic,
+    format,
+    targetDuration,
+    enableVoiceover,
+    documentContent
+  );
 
   serviceLogger.info('Generating screenplay', {
     topic,
     format,
     targetDuration,
     enableVoiceover,
+    aiModel: modelToUse,
+    hasDocumentContent: !!documentContent,
   });
 
   try {
     const response = await getClient().chat.completions.create({
-      model: OPENAI_CONFIG.MODEL,
+      model: modelToUse,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -88,21 +105,27 @@ export async function generateScreenplay(
 
 /**
  * Enhance an existing screenplay based on feedback
+ * @param screenplay - The current screenplay to enhance
+ * @param feedback - User feedback/instructions for enhancement
+ * @param aiModel - Optional AI model to use (default: gpt-4o)
  */
 export async function enhanceScreenplay(
   screenplay: Screenplay,
-  feedback: string
+  feedback: string,
+  aiModel?: string
 ): Promise<Screenplay> {
   const serviceLogger = logger.child({ service: 'openai' });
+  const modelToUse = getOpenAIModelName(aiModel || OPENAI_CONFIG.DEFAULT_MODEL);
 
   serviceLogger.info('Enhancing screenplay', {
     title: screenplay.title,
     feedbackLength: feedback.length,
+    aiModel: modelToUse,
   });
 
   try {
     const response = await getClient().chat.completions.create({
-      model: OPENAI_CONFIG.MODEL,
+      model: modelToUse,
       messages: [
         {
           role: 'system',
@@ -195,9 +218,10 @@ function buildUserPrompt(
   topic: string,
   format: VideoFormat,
   targetDuration: number,
-  enableVoiceover: boolean
+  enableVoiceover: boolean,
+  documentContent?: string
 ): string {
-  return `Create a screenplay for a ${targetDuration}-second ${format.replace('_', ' ')} video about: "${topic}"
+  let prompt = `Create a screenplay for a ${targetDuration}-second ${format.replace('_', ' ')} video about: "${topic}"
 
 Requirements:
 - Total duration should be approximately ${targetDuration} seconds
@@ -209,6 +233,21 @@ Requirements:
 - Describe what the camera sees: people, places, objects, actions, emotions, lighting
 - Example good visual: "Person reading a book in cozy cafe, warm lighting, steam rising from coffee"
 - Example bad visual: "Text appears saying 'Chapter 1'" (AI cannot render text)`;
+
+  if (documentContent) {
+    prompt += `
+
+SOURCE CONTENT:
+The following content has been extracted from uploaded documents. Use this as the primary source material for the screenplay. Transform this content into engaging visual scenes while preserving the key information and message:
+
+---
+${documentContent}
+---
+
+Base the screenplay on this content, making it visually engaging while staying true to the source material.`;
+  }
+
+  return prompt;
 }
 
 function parseScreenplayResponse(

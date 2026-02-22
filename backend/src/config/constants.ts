@@ -363,10 +363,31 @@ export const PAGINATION = {
  * OpenAI configuration
  */
 export const OPENAI_CONFIG = {
-  MODEL: 'gpt-4.1',
+  DEFAULT_MODEL: 'gpt-4o',
   MAX_TOKENS: 2000,
   TEMPERATURE: 0.7,
 } as const;
+
+/**
+ * Supported AI models for screenplay generation
+ */
+export const SUPPORTED_AI_MODELS = {
+  'gpt-4o': { name: 'GPT-4o', provider: 'openai', model: 'gpt-4o' },
+  'gpt-4o-mini': { name: 'GPT-4o Mini', provider: 'openai', model: 'gpt-4o-mini' },
+  'gpt-4-turbo': { name: 'GPT-4 Turbo', provider: 'openai', model: 'gpt-4-turbo' },
+  'gpt-4.1': { name: 'GPT-4.1', provider: 'openai', model: 'gpt-4.1' },
+  'gpt-3.5-turbo': { name: 'GPT-3.5 Turbo', provider: 'openai', model: 'gpt-3.5-turbo' },
+} as const;
+
+export type SupportedAIModel = keyof typeof SUPPORTED_AI_MODELS;
+
+/**
+ * Get the actual OpenAI model name from user-facing model ID
+ */
+export function getOpenAIModelName(modelId: string): string {
+  const model = SUPPORTED_AI_MODELS[modelId as SupportedAIModel];
+  return model?.model || OPENAI_CONFIG.DEFAULT_MODEL;
+}
 
 /**
  * Runway ML configuration

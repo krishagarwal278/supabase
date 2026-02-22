@@ -5,7 +5,7 @@
  */
 
 import OpenAI from 'openai';
-import { TABLES, OPENAI_CONFIG } from '@/config/constants';
+import { TABLES, OPENAI_CONFIG, getOpenAIModelName } from '@/config/constants';
 import { getEnv } from '@/config/env';
 import { getServiceClient } from '@/lib/database';
 import { DatabaseError, ExternalServiceError } from '@/lib/errors';
@@ -50,17 +50,26 @@ export interface IdeationResponse {
 
 /**
  * Generate AI ideation response for brainstorming
+ * @param message - User's message
+ * @param context - Optional context including format, previous messages, and AI model preference
  */
 export async function generateIdeation(
   message: string,
   context?: {
     format?: string;
     previousMessages?: Array<{ role: string; content: string }>;
+    aiModel?: string;
+    currentScreenplay?: Record<string, unknown>;
   }
 ): Promise<IdeationResponse> {
-  chatLogger.info('Generating ideation response', { messageLength: message.length });
+  const modelToUse = getOpenAIModelName(context?.aiModel || OPENAI_CONFIG.DEFAULT_MODEL);
+  chatLogger.info('Generating ideation response', {
+    messageLength: message.length,
+    aiModel: modelToUse,
+    hasScreenplay: !!context?.currentScreenplay,
+  });
 
-  const systemPrompt = `You are a creative video content strategist helping users brainstorm and plan their video content.
+  let systemPrompt = `You are a creative video content strategist helping users brainstorm and plan their video content.
 
 Your role is to:
 - Help users refine their video ideas
@@ -69,7 +78,20 @@ Your role is to:
 - Offer creative suggestions for visual storytelling
 - Give tips for making content more engaging
 
-${context?.format ? `The user is planning a ${context.format} video.` : ''}
+${context?.format ? `The user is planning a ${context.format} video.` : ''}`;
+
+  // If there's an existing screenplay, include it for context
+  if (context?.currentScreenplay) {
+    systemPrompt += `
+
+CURRENT SCREENPLAY:
+The user has a screenplay in progress. When they ask for changes or refinements, suggest specific modifications to the screenplay.
+${JSON.stringify(context.currentScreenplay, null, 2)}
+
+When the user requests changes to the screenplay, your suggestions should be specific scene modifications they can apply.`;
+  }
+
+  systemPrompt += `
 
 Respond in a helpful, encouraging tone. Keep responses concise but actionable.
 After your main response, provide 2-4 specific suggestions as a JSON array in this format at the end:
@@ -94,7 +116,7 @@ After your main response, provide 2-4 specific suggestions as a JSON array in th
     messages.push({ role: 'user', content: message });
 
     const response = await getOpenAI().chat.completions.create({
-      model: OPENAI_CONFIG.MODEL,
+      model: modelToUse,
       messages,
       temperature: 0.8,
       max_tokens: 1000,

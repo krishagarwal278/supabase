@@ -34,7 +34,16 @@ const serviceLogger = logger.child({ service: 'video' });
 export async function generateScreenplay(
   request: VideoGenerationRequest
 ): Promise<VideoGenerationResponse & { rateLimitInfo?: RateLimitInfo }> {
-  const { projectId, format, targetDuration, topic, enableVoiceover, userId } = request;
+  const {
+    projectId,
+    format,
+    targetDuration,
+    topic,
+    enableVoiceover,
+    userId,
+    aiModel,
+    documentContent,
+  } = request;
 
   const duration = targetDuration || 30;
 
@@ -43,6 +52,8 @@ export async function generateScreenplay(
     format,
     duration,
     userId,
+    aiModel: aiModel || 'default',
+    hasDocumentContent: !!documentContent,
   });
 
   // Check rate limit for screenplay generation (free but limited)
@@ -50,12 +61,14 @@ export async function generateScreenplay(
     await rateLimitService.enforceRateLimit(userId, RATE_LIMIT_ACTIONS.SCREENPLAY_GENERATION);
   }
 
-  // Generate screenplay using OpenAI
+  // Generate screenplay using OpenAI with selected model
   const screenplay = await openaiService.generateScreenplay(
     topic,
     format,
     duration,
-    enableVoiceover ?? true
+    enableVoiceover ?? true,
+    aiModel,
+    documentContent
   );
 
   serviceLogger.info('Screenplay generated', {
@@ -104,16 +117,17 @@ export async function generateScreenplay(
  * Enhance an existing screenplay with feedback
  */
 export async function enhanceScreenplay(
-  request: EnhanceScreenplayRequest & { userId?: string }
+  request: EnhanceScreenplayRequest & { userId?: string; aiModel?: string }
 ): Promise<{ screenplay: Screenplay; version?: number }> {
-  const { projectId, screenplay, feedback, userId } = request;
+  const { projectId, screenplay, feedback, userId, aiModel } = request;
 
   serviceLogger.info('Enhancing screenplay', {
     title: screenplay.title,
     feedbackLength: feedback.length,
+    aiModel: aiModel || 'default',
   });
 
-  const enhanced = await openaiService.enhanceScreenplay(screenplay, feedback);
+  const enhanced = await openaiService.enhanceScreenplay(screenplay, feedback, aiModel);
 
   // Store enhanced version
   await storeEnhancedScreenplayInHistory(projectId, enhanced);
