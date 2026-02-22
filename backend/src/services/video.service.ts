@@ -5,6 +5,7 @@
  * Orchestrates OpenAI and Runway services.
  */
 
+import { randomUUID } from 'crypto';
 import * as chatService from './chat.service';
 import * as creditsService from './credits.service';
 import * as falService from './fal.service';
@@ -35,7 +36,7 @@ export async function generateScreenplay(
   request: VideoGenerationRequest
 ): Promise<VideoGenerationResponse & { rateLimitInfo?: RateLimitInfo }> {
   const {
-    projectId,
+    projectId: inputProjectId,
     format,
     targetDuration,
     topic,
@@ -45,6 +46,8 @@ export async function generateScreenplay(
     documentContent,
   } = request;
 
+  // Always use a valid UUID for projectId (generate one if not provided)
+  const projectId = inputProjectId || randomUUID();
   const duration = targetDuration || 30;
 
   serviceLogger.info('Generating screenplay', {
@@ -52,6 +55,7 @@ export async function generateScreenplay(
     format,
     duration,
     userId,
+    projectId,
     aiModel: aiModel || 'default',
     hasDocumentContent: !!documentContent,
   });
@@ -74,6 +78,7 @@ export async function generateScreenplay(
   serviceLogger.info('Screenplay generated', {
     title: screenplay.title,
     sceneCount: screenplay.scenes.length,
+    projectId,
   });
 
   // Log action for rate limiting
@@ -84,12 +89,12 @@ export async function generateScreenplay(
   // Store screenplay in chat_history
   await storeScreenplayInHistory(userId, projectId, screenplay);
 
-  // Update project status if projectId provided
-  if (projectId) {
+  // Update project status if inputProjectId was provided (existing project)
+  if (inputProjectId) {
     try {
-      await projectService.updateProjectStatus(projectId, PROJECT_STATUS.SCREENPLAY_GENERATED);
+      await projectService.updateProjectStatus(inputProjectId, PROJECT_STATUS.SCREENPLAY_GENERATED);
     } catch (error) {
-      serviceLogger.warn('Failed to update project status', { projectId, error });
+      serviceLogger.warn('Failed to update project status', { projectId: inputProjectId, error });
     }
   }
 
@@ -104,7 +109,7 @@ export async function generateScreenplay(
 
   return {
     success: true,
-    projectId: projectId || `screenplay_${Date.now()}`,
+    projectId,
     screenplay,
     status: PROJECT_STATUS.SCREENPLAY_GENERATED,
     message: 'Screenplay generated successfully. Ready for video processing.',
@@ -452,7 +457,7 @@ export async function getProjectScreenplays(projectId: string): Promise<
 
 async function storeScreenplayInHistory(
   userId: string,
-  projectId: string | undefined,
+  projectId: string,
   screenplay: Screenplay
 ): Promise<void> {
   const supabase = getServiceClient();
@@ -460,7 +465,7 @@ async function storeScreenplayInHistory(
   const { error } = await supabase.from(TABLES.CHAT_HISTORY).insert([
     {
       user_id: userId,
-      chat_id: projectId || `screenplay_${Date.now()}`,
+      chat_id: projectId,
       username: 'system',
       role: 'assistant',
       message: JSON.stringify(screenplay, null, 2),
@@ -477,11 +482,12 @@ async function storeEnhancedScreenplayInHistory(
   screenplay: Screenplay
 ): Promise<void> {
   const supabase = getServiceClient();
+  const chatId = projectId || randomUUID();
 
   const { error } = await supabase.from(TABLES.CHAT_HISTORY).insert([
     {
       user_id: projectId || 'anonymous',
-      chat_id: `enhanced_${Date.now()}`,
+      chat_id: chatId,
       username: 'system',
       role: 'assistant',
       message: JSON.stringify(screenplay, null, 2),
@@ -499,7 +505,7 @@ async function storeVideoGenerationRequest(
   screenplay: Screenplay
 ): Promise<string> {
   const supabase = getServiceClient();
-  const requestId = `video_gen_${Date.now()}`;
+  const requestId = randomUUID();
 
   await supabase.from(TABLES.CHAT_HISTORY).insert([
     {
