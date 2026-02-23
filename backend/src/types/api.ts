@@ -90,7 +90,7 @@ export const videoGenerationRequestSchema = z.object({
   format: videoFormatSchema,
   targetDuration: z.number().int().positive().max(600).default(30),
   topic: z.string().min(1, 'Topic is required').max(1000),
-  aiModel: z.string().default('gpt-4o'),
+  aiModel: z.string().default('gpt-4.1'),
   enableVoiceover: z.boolean().default(true),
   enableCaptions: z.boolean().default(false),
   backgroundVideo: z

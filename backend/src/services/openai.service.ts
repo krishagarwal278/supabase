@@ -32,7 +32,7 @@ function getClient(): OpenAI {
  * @param format - Video format (reel, short_video, etc.)
  * @param targetDuration - Target duration in seconds
  * @param enableVoiceover - Whether to include voiceover narration
- * @param aiModel - Optional AI model to use (default: gpt-4o)
+ * @param aiModel - Optional AI model to use (default: gpt-4.1)
  * @param documentContent - Optional extracted content from uploaded documents
  */
 export async function generateScreenplay(
@@ -107,7 +107,7 @@ export async function generateScreenplay(
  * Enhance an existing screenplay based on feedback
  * @param screenplay - The current screenplay to enhance
  * @param feedback - User feedback/instructions for enhancement
- * @param aiModel - Optional AI model to use (default: gpt-4o)
+ * @param aiModel - Optional AI model to use (default: gpt-4.1)
  */
 export async function enhanceScreenplay(
   screenplay: Screenplay,

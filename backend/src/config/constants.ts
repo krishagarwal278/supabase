@@ -363,7 +363,7 @@ export const PAGINATION = {
  * OpenAI configuration
  */
 export const OPENAI_CONFIG = {
-  DEFAULT_MODEL: 'gpt-4o',
+  DEFAULT_MODEL: 'gpt-4.1',
   MAX_TOKENS: 2000,
   TEMPERATURE: 0.7,
 } as const;
