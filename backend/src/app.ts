@@ -46,6 +46,11 @@ export function createApp(): Application {
   // Routes
   // ==========================================================================
 
+  // IndexNow verification key (for search engine indexing)
+  app.get('/7a25946c36804d92bba6a616881bfa15.txt', (_req, res) => {
+    res.type('text/plain').send('7a25946c36804d92bba6a616881bfa15');
+  });
+
   // Health check routes (no auth required, no versioning)
   app.use('/health', healthRoutes);
 
