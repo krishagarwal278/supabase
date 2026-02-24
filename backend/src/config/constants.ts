@@ -413,6 +413,40 @@ export const FAL_CONFIG = {
 } as const;
 
 /**
+ * Fal AI video generation models (for direct text-to-video)
+ * These are used by the frontend for quick test video generation
+ */
+export const FAL_VIDEO_MODELS = {
+  // minimax: 'fal-ai/minimax-video/video-01',
+  wan: 'fal-ai/wan/v2.1/1.3b/text-to-video',
+  luma: 'fal-ai/luma-dream-machine',
+} as const;
+
+export type FalVideoModel = keyof typeof FAL_VIDEO_MODELS;
+
+/**
+ * Fal AI image-to-video models
+ */
+export const FAL_IMAGE_TO_VIDEO_MODELS = {
+  // minimax: 'fal-ai/minimax-video/image-to-video',
+  kling: 'fal-ai/kling-video/v1/standard/image-to-video',
+  luma: 'fal-ai/luma-dream-machine/image-to-video',
+} as const;
+
+export type FalImageToVideoModel = keyof typeof FAL_IMAGE_TO_VIDEO_MODELS;
+
+/**
+ * Fal AI aspect ratios
+ */
+export const FAL_ASPECT_RATIOS = {
+  LANDSCAPE: '16:9',
+  PORTRAIT: '9:16',
+  SQUARE: '1:1',
+} as const;
+
+export type FalAspectRatio = (typeof FAL_ASPECT_RATIOS)[keyof typeof FAL_ASPECT_RATIOS];
+
+/**
  * Request timeouts (in milliseconds)
  */
 export const TIMEOUTS = {

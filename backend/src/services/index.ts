@@ -7,6 +7,10 @@
 export * as openaiService from './openai.service';
 export * as runwayService from './runway.service';
 export * as falService from './fal.service';
+export * as falVideoService from './fal-video.service';
+export * as imageGenerationService from './image-generation.service';
+export * as slideshowService from './slideshow.service';
+export * as storageService from './storage.service';
 export * as projectService from './project.service';
 export * as videoService from './video.service';
 export * as creditsService from './credits.service';

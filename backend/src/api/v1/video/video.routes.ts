@@ -8,11 +8,22 @@ import { Router, Request, Response } from 'express';
 import { ValidationError } from '@/lib/errors';
 import { success } from '@/lib/response';
 import { asyncHandler } from '@/middleware/error-handler';
-import { videoService, projectService, chatService } from '@/services';
+import {
+  videoService,
+  projectService,
+  chatService,
+  falVideoService,
+  storageService,
+  slideshowService,
+} from '@/services';
 import {
   videoGenerationRequestSchema,
   enhanceScreenplayRequestSchema,
   generateVideoRequestSchema,
+  falVideoRequestSchema,
+  falImageToVideoRequestSchema,
+  slideshowRequestSchema,
+  previewSlideshowRequestSchema,
   uuidSchema,
 } from '@/types/api';
 import type { RateLimitInfo } from '@/types/models';
@@ -285,6 +296,190 @@ router.get(
     }
 
     return success(res, versionData);
+  })
+);
+
+// =============================================================================
+// Fal AI Direct Video Generation (Backend Proxy)
+// =============================================================================
+
+/**
+ * POST /api/v1/video/generate-fal
+ * Generate video from text prompt using fal.ai
+ * This is a backend proxy to keep API keys secure
+ * Videos are saved to Supabase Storage for persistence (fal.ai URLs expire)
+ */
+router.post(
+  '/generate-fal',
+  asyncHandler(async (req: Request, res: Response) => {
+    const validated = falVideoRequestSchema.safeParse(req.body);
+
+    if (!validated.success) {
+      throw validated.error;
+    }
+
+    const { prompt, duration, aspectRatio, model, userId } = validated.data;
+
+    const result = await falVideoService.generateTextToVideo(prompt, {
+      duration,
+      aspectRatio,
+      model,
+    });
+
+    if (!result.success || !result.videoUrl) {
+      return res.status(500).json({
+        success: false,
+        error: result.error,
+      });
+    }
+
+    // Save video to Supabase Storage for persistence
+    // fal.ai URLs are temporary and expire quickly
+    try {
+      const { storageUrl, storagePath } = await storageService.saveVideoFromUrl(result.videoUrl, {
+        userId,
+        folder: 'fal-videos',
+      });
+
+      return success(res, {
+        videoUrl: storageUrl,
+        originalUrl: result.videoUrl,
+        storagePath,
+        requestId: result.requestId,
+      });
+    } catch (storageError) {
+      // If storage fails, still return the original URL (it may work briefly)
+      console.error('Failed to save video to storage:', storageError);
+      return success(res, {
+        videoUrl: result.videoUrl,
+        requestId: result.requestId,
+        warning: 'Video saved to temporary URL only. Download immediately as it will expire.',
+      });
+    }
+  })
+);
+
+/**
+ * POST /api/v1/video/generate-fal-image
+ * Generate video from image using fal.ai (image-to-video)
+ * This is a backend proxy to keep API keys secure
+ * Videos are saved to Supabase Storage for persistence (fal.ai URLs expire)
+ */
+router.post(
+  '/generate-fal-image',
+  asyncHandler(async (req: Request, res: Response) => {
+    const validated = falImageToVideoRequestSchema.safeParse(req.body);
+
+    if (!validated.success) {
+      throw validated.error;
+    }
+
+    const { prompt, imageUrl, model, userId } = validated.data;
+
+    const result = await falVideoService.generateImageToVideo(prompt, imageUrl, {
+      model,
+    });
+
+    if (!result.success || !result.videoUrl) {
+      return res.status(500).json({
+        success: false,
+        error: result.error,
+      });
+    }
+
+    // Save video to Supabase Storage for persistence
+    try {
+      const { storageUrl, storagePath } = await storageService.saveVideoFromUrl(result.videoUrl, {
+        userId,
+        folder: 'fal-videos',
+      });
+
+      return success(res, {
+        videoUrl: storageUrl,
+        originalUrl: result.videoUrl,
+        storagePath,
+        requestId: result.requestId,
+      });
+    } catch (storageError) {
+      console.error('Failed to save video to storage:', storageError);
+      return success(res, {
+        videoUrl: result.videoUrl,
+        requestId: result.requestId,
+        warning: 'Video saved to temporary URL only. Download immediately as it will expire.',
+      });
+    }
+  })
+);
+
+// =============================================================================
+// Slideshow Generation (Recommended for Course Content)
+// =============================================================================
+
+/**
+ * POST /api/v1/video/generate-slideshow
+ * Generate a slideshow from document content
+ * Creates professional slides with AI-generated backgrounds
+ */
+router.post(
+  '/generate-slideshow',
+  asyncHandler(async (req: Request, res: Response) => {
+    const validated = slideshowRequestSchema.safeParse(req.body);
+
+    if (!validated.success) {
+      throw validated.error;
+    }
+
+    const result = await slideshowService.generateSlideshow(validated.data);
+
+    if (!result.success) {
+      return res.status(500).json({
+        success: false,
+        error: result.error,
+      });
+    }
+
+    return success(res, {
+      slides: result.slides,
+      totalDuration: result.totalDuration,
+      slideCount: result.slides.length,
+    });
+  })
+);
+
+/**
+ * POST /api/v1/video/generate-slideshow-preview
+ * Generate a quick preview slideshow (fewer slides, faster)
+ * Good for testing before full generation
+ */
+router.post(
+  '/generate-slideshow-preview',
+  asyncHandler(async (req: Request, res: Response) => {
+    const validated = previewSlideshowRequestSchema.safeParse(req.body);
+
+    if (!validated.success) {
+      throw validated.error;
+    }
+
+    const { content, style, userId } = validated.data;
+
+    const result = await slideshowService.generatePreviewSlideshow(content, {
+      userId,
+      style,
+    });
+
+    if (!result.success) {
+      return res.status(500).json({
+        success: false,
+        error: result.error,
+      });
+    }
+
+    return success(res, {
+      slides: result.slides,
+      totalDuration: result.totalDuration,
+      slideCount: result.slides.length,
+      isPreview: true,
+    });
   })
 );
 
