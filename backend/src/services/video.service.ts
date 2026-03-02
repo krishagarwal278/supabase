@@ -58,6 +58,7 @@ export async function generateScreenplay(
     projectId,
     aiModel: aiModel || 'default',
     hasDocumentContent: !!documentContent,
+    enableVoiceover,
   });
 
   // Check rate limit for screenplay generation (free but limited)
@@ -263,25 +264,34 @@ export async function generateVideo(request: GenerateVideoRequest): Promise<{
     // Store result
     await storeVideoGenerationResult(userId, requestId, projectId, result);
 
-    // 3. Deduct credits on successful generation (admins bypass)
+    const generationSucceeded = !!(result.videoUrl ?? result.videoUrls?.length);
+
+    // 3. Deduct credits only when generation actually produced at least one clip (admins bypass)
     let remainingCredits = 0;
     if (userRole !== USER_ROLES.ADMIN) {
-      const deductResult = await creditsService.deductCredits(
-        userId,
-        creditCost,
-        'video_generation',
-        `Video generation: ${projectName}`,
-        historyEntryId
-      );
-      remainingCredits = deductResult.remainingCredits;
+      if (generationSucceeded) {
+        const deductResult = await creditsService.deductCredits(
+          userId,
+          creditCost,
+          'video_generation',
+          `Video generation: ${projectName}`,
+          historyEntryId
+        );
+        remainingCredits = deductResult.remainingCredits;
+      } else {
+        await historyService.markAsFailed(historyEntryId, result.error ?? 'No clips generated');
+        const currentCredits = await creditsService.getUserCredits(userId);
+        remainingCredits = currentCredits.total_credits - currentCredits.used_credits;
+      }
     } else {
-      // For admins, get current balance without deducting
       const adminCredits = await creditsService.getUserCredits(userId);
       remainingCredits = adminCredits.total_credits - adminCredits.used_credits;
     }
 
-    // 4. Log action for rate limiting
-    await rateLimitService.logAction(userId, RATE_LIMIT_ACTIONS.VIDEO_GENERATION);
+    // 4. Log action for rate limiting only when we actually used credits (generation succeeded)
+    if (generationSucceeded) {
+      await rateLimitService.logAction(userId, RATE_LIMIT_ACTIONS.VIDEO_GENERATION);
+    }
 
     // Update history entry based on result
     if (result.videoUrl) {

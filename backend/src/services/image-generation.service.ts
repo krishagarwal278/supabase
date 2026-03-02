@@ -1,9 +1,8 @@
 /**
  * Image Generation Service
  *
- * Generates images using fal.ai FLUX model for slideshow slides.
- * Uses GPT-4o-mini to create contextually relevant image prompts.
- * FLUX is much more reliable than video generation for text/educational content.
+ * Generates images using fal.ai FLUX. Image prompts are created by OpenAI (GPT-4o-mini)
+ * or Kimi (Moonshot) for better, topic-coherent prompts when using Kimi for slides.
  */
 
 import fetch, { Headers, Request, Response } from 'node-fetch';
@@ -19,8 +18,12 @@ if (!g.fetch) {
   g.Response = Response;
 }
 
+const MOONSHOT_BASE_URL = 'https://api.moonshot.ai/v1';
+const KIMI_MODEL = 'kimi-k2.5';
+
 let fal: typeof import('@fal-ai/client').fal;
 let openaiClient: OpenAI | null = null;
+let kimiClient: OpenAI | null = null;
 
 const serviceLogger = logger.child({ service: 'image-generation' });
 
@@ -35,6 +38,37 @@ function getOpenAIClient(): OpenAI {
     openaiClient = new OpenAI({ apiKey });
   }
   return openaiClient;
+}
+
+function getKimiClient(): OpenAI {
+  if (!kimiClient) {
+    const apiKey = process.env['MOONSHOT_API_KEY'];
+    if (!apiKey) {
+      throw new ServiceUnavailableError('Moonshot/Kimi', 'MOONSHOT_API_KEY is not set');
+    }
+    kimiClient = new OpenAI({ apiKey, baseURL: MOONSHOT_BASE_URL });
+  }
+  return kimiClient;
+}
+
+export function isKimiConfigured(): boolean {
+  return !!process.env['MOONSHOT_API_KEY'];
+}
+
+/** Extract plain text from API message content (string or array of parts) */
+function extractTextFromMessageContent(content: unknown): string {
+  if (typeof content === 'string') {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return content
+      .map((part: { type?: string; text?: string }) =>
+        part && typeof part === 'object' && 'text' in part ? String(part.text) : ''
+      )
+      .filter(Boolean)
+      .join('\n');
+  }
+  return '';
 }
 
 async function initializeFalClient(): Promise<void> {
@@ -60,6 +94,23 @@ async function initializeFalClient(): Promise<void> {
 
 export function isFalConfigured(): boolean {
   return !!process.env['FAL_AI_API_KEY'];
+}
+
+/**
+ * Call at server startup to load @fal-ai/client so the dynamic import runs when the
+ * process is stable. Avoids "Channel closed" when ts-node-dev restarts mid-request.
+ */
+export async function preloadFalClient(): Promise<void> {
+  if (!isFalConfigured()) {
+    return;
+  }
+  try {
+    await initializeFalClient();
+  } catch (err) {
+    serviceLogger.warn('Fal client preload failed (will retry on first use)', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 export interface SlideContent {
@@ -98,11 +149,16 @@ const STYLE_DIRECTIONS: Record<string, string> = {
 };
 
 /**
- * Generate a contextually relevant image prompt using GPT-4o-mini
- * This creates much better, topic-specific prompts than generic templates
+ * Generate a contextually relevant image prompt for FLUX using OpenAI or Kimi.
+ * Kimi produces more coherent, topic-specific prompts when used for the whole slideshow.
  */
-async function generateImagePrompt(slide: SlideContent, style: string): Promise<string> {
-  const client = getOpenAIClient();
+async function generateImagePrompt(
+  slide: SlideContent,
+  style: string,
+  options: { promptProvider?: 'openai' | 'kimi' } = {}
+): Promise<string> {
+  const useKimi = options.promptProvider === 'kimi' && isKimiConfigured();
+  const client = useKimi ? getKimiClient() : getOpenAIClient();
   const styleDirection = STYLE_DIRECTIONS[style] || STYLE_DIRECTIONS.modern;
 
   const systemPrompt = `You are an expert at creating image generation prompts for FLUX AI.
@@ -118,7 +174,9 @@ CRITICAL RULES:
 
 Style direction: ${styleDirection}`;
 
-  const userPrompt = `Create an image prompt for a slide about: "${slide.title}"
+  const userPrompt = useKimi
+    ? `Slide: "${slide.title}". Points: ${slide.bulletPoints.join('; ')}. ${slide.visualDescription ? `Visual: ${slide.visualDescription}` : ''}\n\nReply with ONLY the image prompt for FLUX (one paragraph, no quotes, no explanation). No text or words in the image. Style: ${styleDirection}.`
+    : `Create an image prompt for a slide about: "${slide.title}"
 
 Key points covered:
 ${slide.bulletPoints.map((p) => `- ${p}`).join('\n')}
@@ -129,23 +187,31 @@ Generate a detailed, specific prompt for FLUX that creates a relevant, professio
 
   try {
     const response = await client.chat.completions.create({
-      model: 'gpt-4o-mini', // Cheapest model, ~$0.00015 per 1K input tokens
+      model: useKimi ? KIMI_MODEL : 'gpt-4o-mini',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      temperature: 0.8,
-      max_tokens: 200,
+      temperature: useKimi ? 1 : 0.8,
+      max_tokens: useKimi ? 500 : 300,
     });
 
-    const generatedPrompt = response.choices[0]?.message?.content?.trim();
+    const rawContent = response.choices[0]?.message?.content;
+    const generatedPrompt = extractTextFromMessageContent(rawContent).trim();
 
     if (!generatedPrompt) {
-      throw new Error('Empty response from GPT');
+      serviceLogger.warn('Empty content from image-prompt AI', {
+        slideNumber: slide.slideNumber,
+        promptProvider: useKimi ? 'kimi' : 'openai',
+        finishReason: response.choices[0]?.finish_reason,
+        rawType: typeof rawContent,
+      });
+      throw new Error('Empty response from content AI');
     }
 
-    serviceLogger.info('Generated GPT image prompt', {
+    serviceLogger.info('Generated image prompt', {
       slideNumber: slide.slideNumber,
+      promptProvider: useKimi ? 'kimi' : 'openai',
       promptPreview: `${generatedPrompt.substring(0, 100)}...`,
     });
 
@@ -154,16 +220,16 @@ Generate a detailed, specific prompt for FLUX that creates a relevant, professio
     const errorMessage = error instanceof Error ? error.message : String(error);
     serviceLogger.warn('Failed to generate custom prompt, using fallback', {
       slideNumber: slide.slideNumber,
+      promptProvider: useKimi ? 'kimi' : 'openai',
       error: errorMessage,
     });
 
-    // Fallback to a basic but topic-relevant prompt
     return `Professional presentation background for ${slide.title}. ${styleDirection}. Abstract visual representation, no text, high quality, 4K resolution.`;
   }
 }
 
 /**
- * Generate a single slide image using FLUX with GPT-enhanced prompts
+ * Generate a single slide image using FLUX with AI-enhanced prompts (OpenAI or Kimi)
  */
 export async function generateSlideImage(
   slide: SlideContent,
@@ -171,14 +237,20 @@ export async function generateSlideImage(
     model?: keyof typeof FLUX_MODELS;
     aspectRatio?: '16:9' | '4:3' | '1:1';
     style?: 'modern' | 'minimal' | 'corporate' | 'creative';
+    /** Use Kimi for the image prompt when true and MOONSHOT_API_KEY is set */
+    promptProvider?: 'openai' | 'kimi';
   } = {}
 ): Promise<string> {
-  const { model = 'schnell', aspectRatio = '16:9', style = 'modern' } = options;
+  const {
+    model = 'schnell',
+    aspectRatio = '16:9',
+    style = 'modern',
+    promptProvider = 'openai',
+  } = options;
 
   await initializeFalClient();
 
-  // Generate a contextually relevant prompt using GPT-4o-mini
-  const prompt = await generateImagePrompt(slide, style);
+  const prompt = await generateImagePrompt(slide, style, { promptProvider });
 
   serviceLogger.info('Generating slide image', {
     slideNumber: slide.slideNumber,
@@ -237,14 +309,19 @@ export async function generateSlideImages(
     model?: keyof typeof FLUX_MODELS;
     aspectRatio?: '16:9' | '4:3' | '1:1';
     style?: 'modern' | 'minimal' | 'corporate' | 'creative';
+    /** Use Kimi for image prompts when 'kimi' (and MOONSHOT_API_KEY set) */
+    promptProvider?: 'openai' | 'kimi';
     onProgress?: (completed: number, total: number) => void;
   } = {}
 ): Promise<GeneratedSlide[]> {
-  const { onProgress } = options;
+  const { onProgress, promptProvider = 'openai' } = options;
   const results: GeneratedSlide[] = [];
   let completed = 0;
 
-  serviceLogger.info('Generating slide images', { count: slides.length });
+  serviceLogger.info('Generating slide images', {
+    count: slides.length,
+    promptProvider: promptProvider === 'kimi' && isKimiConfigured() ? 'kimi' : 'openai',
+  });
 
   // Generate images sequentially to avoid rate limits
   for (const slide of slides) {

@@ -13,6 +13,8 @@ import { logger } from '@/lib/logger';
 const serviceLogger = logger.child({ service: 'storage' });
 
 const STORAGE_BUCKET = 'generated-videos';
+const AUDIO_STORAGE_BUCKET = 'generated-audio';
+const IMAGES_STORAGE_BUCKET = 'generated-images';
 
 /**
  * Ensure the storage bucket exists
@@ -28,7 +30,7 @@ async function ensureBucketExists(): Promise<void> {
     serviceLogger.info(`Creating storage bucket: ${STORAGE_BUCKET}`);
     const { error } = await supabase.storage.createBucket(STORAGE_BUCKET, {
       public: true,
-      fileSizeLimit: 100 * 1024 * 1024, // 100MB limit
+      fileSizeLimit: 50 * 1024 * 1024, // 50MB (some Supabase plans reject 100MB)
       allowedMimeTypes: ['video/mp4', 'video/webm', 'video/quicktime'],
     });
 
@@ -36,6 +38,58 @@ async function ensureBucketExists(): Promise<void> {
       throw new ExternalServiceError(
         'Supabase Storage',
         `Failed to create bucket: ${error.message}`
+      );
+    }
+  }
+}
+
+/**
+ * Ensure the images storage bucket exists (for slideshow images, etc.)
+ */
+async function ensureImagesBucketExists(): Promise<void> {
+  const supabase = getServiceClient();
+  const { data: buckets } = await supabase.storage.listBuckets();
+  const bucketExists = buckets?.some((b) => b.name === IMAGES_STORAGE_BUCKET);
+
+  if (!bucketExists) {
+    serviceLogger.info(`Creating storage bucket: ${IMAGES_STORAGE_BUCKET}`);
+    const { error } = await supabase.storage.createBucket(IMAGES_STORAGE_BUCKET, {
+      public: true,
+      fileSizeLimit: 5 * 1024 * 1024, // 5MB per image
+      allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+    });
+
+    if (error && !error.message.includes('already exists')) {
+      throw new ExternalServiceError(
+        'Supabase Storage',
+        `Failed to create bucket: ${error.message}`
+      );
+    }
+  }
+}
+
+/**
+ * Ensure the audio storage bucket exists (for TTS output)
+ */
+async function ensureAudioBucketExists(): Promise<void> {
+  const supabase = getServiceClient();
+
+  const { data: buckets } = await supabase.storage.listBuckets();
+
+  const bucketExists = buckets?.some((b) => b.name === AUDIO_STORAGE_BUCKET);
+
+  if (!bucketExists) {
+    serviceLogger.info(`Creating storage bucket: ${AUDIO_STORAGE_BUCKET}`);
+    const { error } = await supabase.storage.createBucket(AUDIO_STORAGE_BUCKET, {
+      public: true,
+      fileSizeLimit: 10 * 1024 * 1024, // 10MB limit for audio
+      allowedMimeTypes: ['audio/mpeg', 'audio/mp3', 'audio/mp4', 'audio/wav'],
+    });
+
+    if (error && !error.message.includes('already exists')) {
+      throw new ExternalServiceError(
+        'Supabase Storage',
+        `Failed to create audio bucket: ${error.message}`
       );
     }
   }
@@ -123,6 +177,63 @@ export async function saveVideoFromUrl(
 }
 
 /**
+ * Download an image from URL and upload to Supabase Storage (images bucket).
+ * Use for slideshow slide images (JPG/PNG) instead of the video bucket.
+ */
+export async function saveImageFromUrl(
+  externalUrl: string,
+  options: {
+    userId?: string;
+    filename?: string;
+    folder?: string;
+  } = {}
+): Promise<{ storageUrl: string; storagePath: string }> {
+  const { userId, filename, folder = 'slideshow-images' } = options;
+
+  serviceLogger.info('Downloading image from URL', {
+    url: externalUrl.substring(0, 80),
+    userId,
+  });
+
+  try {
+    await ensureImagesBucketExists();
+
+    const response = await fetch(externalUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to download image: HTTP ${response.status}`);
+    }
+
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    const buffer = await response.arrayBuffer();
+
+    const ext = contentType.includes('png') ? 'png' : 'jpg';
+    const finalFilename = filename || `${randomUUID()}.${ext}`;
+    const storagePath = userId
+      ? `${folder}/${userId}/${finalFilename}`
+      : `${folder}/${finalFilename}`;
+
+    const supabase = getServiceClient();
+    const { error } = await supabase.storage
+      .from(IMAGES_STORAGE_BUCKET)
+      .upload(storagePath, buffer, { contentType: contentType.split(';')[0].trim(), upsert: true });
+
+    if (error) {
+      throw new Error(`Failed to upload image: ${error.message}`);
+    }
+
+    const { data: urlData } = supabase.storage
+      .from(IMAGES_STORAGE_BUCKET)
+      .getPublicUrl(storagePath);
+
+    return { storageUrl: urlData.publicUrl, storagePath };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    serviceLogger.error('Failed to save image from URL', { error: msg });
+    throw new ExternalServiceError('Storage', `Failed to save image: ${msg}`);
+  }
+}
+
+/**
  * Delete a video from Supabase Storage
  */
 export async function deleteVideo(storagePath: string): Promise<void> {
@@ -143,4 +254,46 @@ export function getPublicUrl(storagePath: string): string {
   const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath);
 
   return data.publicUrl;
+}
+
+/**
+ * Save TTS audio buffer to Supabase Storage and return public URL
+ */
+export async function saveAudioFromBuffer(
+  buffer: Buffer | ArrayBuffer,
+  options: {
+    userId?: string;
+    filename?: string;
+    folder?: string;
+    contentType?: string;
+  } = {}
+): Promise<{ storageUrl: string; storagePath: string }> {
+  const { userId, filename, folder = 'tts', contentType = 'audio/mpeg' } = options;
+
+  await ensureAudioBucketExists();
+
+  const data = buffer instanceof ArrayBuffer ? Buffer.from(buffer) : buffer;
+  const extension = contentType.includes('mp4') ? 'mp4' : 'mp3';
+  const finalFilename = filename || `${randomUUID()}.${extension}`;
+  const storagePath = userId
+    ? `${folder}/${userId}/${finalFilename}`
+    : `${folder}/${finalFilename}`;
+
+  const supabase = getServiceClient();
+  const { error } = await supabase.storage
+    .from(AUDIO_STORAGE_BUCKET)
+    .upload(storagePath, data, { contentType, upsert: true });
+
+  if (error) {
+    throw new Error(`Failed to upload audio to storage: ${error.message}`);
+  }
+
+  const { data: urlData } = supabase.storage.from(AUDIO_STORAGE_BUCKET).getPublicUrl(storagePath);
+
+  serviceLogger.info('Audio saved to Supabase Storage', {
+    storagePath,
+    size: data.length,
+  });
+
+  return { storageUrl: urlData.publicUrl, storagePath };
 }

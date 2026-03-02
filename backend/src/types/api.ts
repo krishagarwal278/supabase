@@ -219,16 +219,25 @@ export type FalAspectRatio = z.infer<typeof falAspectRatioSchema>;
  */
 export const slideshowStyleSchema = z.enum(['modern', 'minimal', 'corporate', 'creative']);
 
+/** Content AI for slideshow: openai (GPT) or kimi (Moonshot) */
+export const slideshowContentAiSchema = z.enum(['openai', 'kimi']);
+
 /**
  * Slideshow generation request schema
  */
 export const slideshowRequestSchema = z.object({
-  content: z.string().min(10, 'Content must be at least 10 characters'),
+  content: z
+    .string()
+    .min(10, 'Content must be at least 10 characters')
+    .describe(
+      'For document-relevant slides, send the full extracted document text; short content (e.g. topic only) yields generic slides.'
+    ),
   title: z.string().optional(),
   maxSlides: z.number().int().min(3).max(15).default(8),
   slideDuration: z.number().int().min(3).max(15).default(5),
   style: slideshowStyleSchema.default('modern'),
   aspectRatio: z.enum(['16:9', '4:3']).default('16:9'),
+  contentAiModel: slideshowContentAiSchema.optional(),
   userId: z.string().optional(),
 });
 
@@ -242,6 +251,23 @@ export const previewSlideshowRequestSchema = z.object({
   userId: z.string().optional(),
 });
 
+/** Slide shape for export (PPT/PDF) */
+export const exportSlideSchema = z.object({
+  slideNumber: z.number(),
+  title: z.string(),
+  bulletPoints: z.array(z.string()),
+  narration: z.string(),
+  visualDescription: z.string(),
+  imageUrl: z.union([z.string().url(), z.literal('')]).optional(),
+});
+
+export const exportSlideshowRequestSchema = z.object({
+  slides: z.array(exportSlideSchema).min(1),
+  title: z.string().max(255).optional(),
+  format: z.enum(['pptx', 'pdf']),
+});
+
 export type SlideshowRequest = z.infer<typeof slideshowRequestSchema>;
 export type PreviewSlideshowRequest = z.infer<typeof previewSlideshowRequestSchema>;
 export type SlideshowStyle = z.infer<typeof slideshowStyleSchema>;
+export type ExportSlideshowRequest = z.infer<typeof exportSlideshowRequestSchema>;

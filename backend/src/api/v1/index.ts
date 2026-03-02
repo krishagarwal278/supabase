@@ -16,14 +16,28 @@ import videoRoutes from './video/video.routes';
 
 const router = Router();
 
+// Use default export when present (fixes Router.use "got Object" when TS/Node interop gives { default: router })
+const asRouter = (r: unknown, name: string): ReturnType<typeof Router> => {
+  if (typeof r === 'function') {
+    return r as ReturnType<typeof Router>;
+  }
+  const d = (r as { default?: unknown })?.default;
+  if (typeof d === 'function') {
+    return d as ReturnType<typeof Router>;
+  }
+  throw new Error(
+    `Route "${name}" did not export a Router (got ${typeof r}). Check ${name}.routes.ts default export.`
+  );
+};
+
 // Mount routes
-router.use('/projects', projectsRoutes);
-router.use('/video', videoRoutes);
-router.use('/chat', chatRoutes);
-router.use('/credits', creditsRoutes);
-router.use('/history', historyRoutes);
-router.use('/interest', interestRoutes);
-router.use('/users', usersRoutes);
+router.use('/projects', asRouter(projectsRoutes, 'projects'));
+router.use('/video', asRouter(videoRoutes, 'video'));
+router.use('/chat', asRouter(chatRoutes, 'chat'));
+router.use('/credits', asRouter(creditsRoutes, 'credits'));
+router.use('/history', asRouter(historyRoutes, 'history'));
+router.use('/interest', asRouter(interestRoutes, 'interest'));
+router.use('/users', asRouter(usersRoutes, 'users'));
 
 // Health routes are mounted at root level in app.ts
 export { healthRoutes };

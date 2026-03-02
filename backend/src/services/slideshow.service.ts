@@ -2,8 +2,7 @@
  * Slideshow Service
  *
  * Creates professional slideshow videos from document content.
- * Uses OpenAI to extract key points and structure slides,
- * FLUX to generate slide backgrounds, and assembles into video.
+ * Uses OpenAI or Kimi (Moonshot) to extract key points, FLUX for images.
  */
 
 import { randomUUID } from 'crypto';
@@ -16,7 +15,11 @@ import { logger } from '@/lib/logger';
 
 const serviceLogger = logger.child({ service: 'slideshow' });
 
+const MOONSHOT_BASE_URL = 'https://api.moonshot.ai/v1';
+const KIMI_MODEL = 'kimi-k2.5';
+
 let openaiClient: OpenAI | null = null;
+let kimiClient: OpenAI | null = null;
 
 function getOpenAIClient(): OpenAI {
   if (!openaiClient) {
@@ -26,13 +29,46 @@ function getOpenAIClient(): OpenAI {
   return openaiClient;
 }
 
+function getKimiClient(): OpenAI {
+  if (!kimiClient) {
+    const env = getEnv();
+    const key = env.MOONSHOT_API_KEY;
+    if (!key) {
+      throw new ExternalServiceError('Moonshot/Kimi', 'MOONSHOT_API_KEY is not set.');
+    }
+    kimiClient = new OpenAI({ apiKey: key, baseURL: MOONSHOT_BASE_URL });
+  }
+  return kimiClient;
+}
+
+export function isKimiConfigured(): boolean {
+  return !!process.env['MOONSHOT_API_KEY'];
+}
+
+/** Extract plain text from chat message content (string or array of parts) */
+function extractTextFromMessageContent(content: unknown): string {
+  if (typeof content === 'string') {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return content
+      .map((part: { type?: string; text?: string }) =>
+        part && typeof part === 'object' && 'text' in part ? String(part.text) : ''
+      )
+      .filter(Boolean)
+      .join('\n');
+  }
+  return '';
+}
+
 export interface SlideshowRequest {
   content: string;
   title?: string;
   maxSlides?: number;
-  slideDuration?: number; // seconds per slide
+  slideDuration?: number;
   style?: 'modern' | 'minimal' | 'corporate' | 'creative';
   aspectRatio?: '16:9' | '4:3';
+  contentAiModel?: 'openai' | 'kimi';
   userId?: string;
 }
 
@@ -54,8 +90,7 @@ export interface SlideshowResult {
 }
 
 /**
- * Extract structured slides from document content using OpenAI
- * If content is short (just a topic), GPT will generate educational content from scratch
+ * Extract structured slides from document content using OpenAI or Kimi
  */
 export async function extractSlides(
   content: string,
@@ -63,18 +98,28 @@ export async function extractSlides(
     title?: string;
     maxSlides?: number;
     targetAudience?: string;
+    contentAiModel?: 'openai' | 'kimi';
   } = {}
 ): Promise<SlideData[]> {
-  const { title, maxSlides = 8 } = options;
+  const { title, maxSlides = 8, contentAiModel = 'openai' } = options;
   const isShortTopic = content.length < 100;
+  const useKimi = contentAiModel === 'kimi' && isKimiConfigured();
+  const provider = useKimi ? 'kimi' : 'openai';
 
   serviceLogger.info('Extracting slides from content', {
     contentLength: content.length,
     maxSlides,
     isShortTopic,
+    provider,
   });
 
-  const client = getOpenAIClient();
+  if (content.length < 400) {
+    serviceLogger.warn(
+      'Content is very short; slides may be generic. For document-relevant slides, send the full extracted document text in the "content" field (not just a topic or title).'
+    );
+  }
+
+  const client = useKimi ? getKimiClient() : getOpenAIClient();
 
   // Different prompts for short topics vs full content
   const systemPrompt = isShortTopic
@@ -147,31 +192,45 @@ Return JSON in this exact format:
 
   try {
     const response = await client.chat.completions.create({
-      model: 'gpt-4o',
+      model: useKimi ? KIMI_MODEL : 'gpt-4o',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      temperature: 0.7,
-      max_tokens: 3000,
-      response_format: { type: 'json_object' },
+      temperature: useKimi ? 1 : 0.6,
+      max_tokens: useKimi ? 8192 : 4000,
+      ...(useKimi ? {} : { response_format: { type: 'json_object' as const } }),
     });
 
-    const responseContent = response.choices[0]?.message?.content;
-    if (!responseContent) {
-      throw new Error('Empty response from OpenAI');
+    const rawContent = response.choices[0]?.message?.content;
+    const responseContent = extractTextFromMessageContent(rawContent);
+    if (!responseContent.trim()) {
+      serviceLogger.warn('Empty slide-extraction response', {
+        provider,
+        finishReason: response.choices[0]?.finish_reason,
+        rawType: typeof rawContent,
+      });
+      throw new Error('Empty response from content AI');
     }
 
-    const parsed = JSON.parse(responseContent);
-    const slides: SlideData[] = parsed.slides || [];
+    let raw = responseContent.trim();
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      raw = jsonMatch[0];
+    }
+    const parsed = JSON.parse(raw);
+    const slides: SlideData[] = Array.isArray(parsed.slides) ? parsed.slides : [];
 
-    serviceLogger.info('Slides extracted', { count: slides.length });
+    serviceLogger.info('Slides extracted', { count: slides.length, provider });
 
     return slides;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     serviceLogger.error('Failed to extract slides', { error: errorMessage });
-    throw new ExternalServiceError('OpenAI', `Slide extraction failed: ${errorMessage}`);
+    throw new ExternalServiceError(
+      useKimi ? 'Kimi' : 'OpenAI',
+      `Slide extraction failed: ${errorMessage}`
+    );
   }
 }
 
@@ -189,19 +248,27 @@ export async function generateSlideshow(
     slideDuration = 5,
     style = 'modern',
     aspectRatio = '16:9',
+    contentAiModel,
     userId,
   } = request;
+
+  const effectiveContentAi = contentAiModel ?? (isKimiConfigured() ? 'kimi' : 'openai');
 
   serviceLogger.info('Starting slideshow generation', {
     contentLength: content.length,
     maxSlides,
     style,
+    contentAiModel: effectiveContentAi,
   });
 
   try {
-    // Step 1: Extract slides from content
+    // Step 1: Extract slides (Kimi or OpenAI)
     onProgress?.('Analyzing content and creating slides...', 10);
-    const slides = await extractSlides(content, { title, maxSlides });
+    const slides = await extractSlides(content, {
+      title,
+      maxSlides,
+      contentAiModel: effectiveContentAi,
+    });
 
     if (slides.length === 0) {
       return {
@@ -222,9 +289,10 @@ export async function generateSlideshow(
     }));
 
     const generatedImages = await imageService.generateSlideImages(slideContents, {
-      model: 'schnell', // Fast and cheap
+      model: 'schnell',
       aspectRatio: aspectRatio as '16:9' | '4:3',
       style,
+      promptProvider: effectiveContentAi, // Kimi for both extraction and image prompts when Content AI is Kimi
       onProgress: (completed, total) => {
         const progress = 30 + (completed / total) * 50;
         onProgress?.(`Generating slide ${completed}/${total}...`, progress);
@@ -245,10 +313,10 @@ export async function generateSlideshow(
     for (const slide of slides) {
       if (slide.imageUrl && slide.imageUrl.includes('fal.media')) {
         try {
-          const { storageUrl } = await storageService.saveVideoFromUrl(slide.imageUrl, {
+          const { storageUrl } = await storageService.saveImageFromUrl(slide.imageUrl, {
             userId,
             folder: 'slideshow-images',
-            filename: `slide-${slide.slideNumber}-${randomUUID()}.png`,
+            filename: `slide-${slide.slideNumber}-${randomUUID()}.jpg`,
           });
           slide.imageUrl = storageUrl;
         } catch (error) {

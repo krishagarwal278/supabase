@@ -5,6 +5,7 @@
  */
 
 import { Router, Request, Response } from 'express';
+import multer from 'multer';
 import { ValidationError } from '@/lib/errors';
 import { success } from '@/lib/response';
 import { asyncHandler } from '@/middleware/error-handler';
@@ -15,7 +16,9 @@ import {
   falVideoService,
   storageService,
   slideshowService,
+  slideshowExportService,
 } from '@/services';
+import { extractTextFromDocument } from '@/services/document-extraction.service';
 import {
   videoGenerationRequestSchema,
   enhanceScreenplayRequestSchema,
@@ -24,11 +27,18 @@ import {
   falImageToVideoRequestSchema,
   slideshowRequestSchema,
   previewSlideshowRequestSchema,
+  exportSlideshowRequestSchema,
   uuidSchema,
 } from '@/types/api';
 import type { RateLimitInfo } from '@/types/models';
 
 const router = Router();
+
+/** Multer memory storage for document upload (max 15MB for strategy docs) */
+const documentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+}).single('document');
 
 /**
  * Helper to set rate limit headers on response
@@ -417,13 +427,49 @@ router.post(
 
 /**
  * POST /api/v1/video/generate-slideshow
- * Generate a slideshow from document content
- * Creates professional slides with AI-generated backgrounds
+ * Generate a slideshow from document content.
+ * Accepts either:
+ * - JSON body: { content: "full document text", title?, maxSlides?, ... }
+ * - multipart/form-data: field "document" (file .docx, .pdf, or .txt) + optional title, maxSlides, style, etc.
+ * When a document file is uploaded, full text is extracted server-side for maximum relevance.
  */
 router.post(
   '/generate-slideshow',
   asyncHandler(async (req: Request, res: Response) => {
-    const validated = slideshowRequestSchema.safeParse(req.body);
+    // Parse multipart form when client sends a file
+    if (req.is('multipart/form-data')) {
+      await new Promise<void>((resolve, reject) => {
+        documentUpload(req, res, (err: unknown) => (err ? reject(err) : resolve()));
+      });
+    }
+
+    let body = req.body as Record<string, unknown>;
+
+    if (req.file) {
+      const { text } = await extractTextFromDocument(req.file.buffer, req.file.mimetype);
+      body = {
+        ...body,
+        content: text,
+      };
+    }
+
+    // Coerce form field strings to schema types
+    const normalized = {
+      content: body.content,
+      title: body.title,
+      maxSlides:
+        typeof body.maxSlides === 'string' ? parseInt(body.maxSlides, 10) || 8 : body.maxSlides,
+      slideDuration:
+        typeof body.slideDuration === 'string'
+          ? parseInt(body.slideDuration, 10) || 5
+          : body.slideDuration,
+      style: body.style,
+      aspectRatio: body.aspectRatio,
+      contentAiModel: body.contentAiModel,
+      userId: body.userId,
+    };
+
+    const validated = slideshowRequestSchema.safeParse(normalized);
 
     if (!validated.success) {
       throw validated.error;
@@ -480,6 +526,41 @@ router.post(
       slideCount: result.slides.length,
       isPreview: true,
     });
+  })
+);
+
+/**
+ * POST /api/v1/video/export-slideshow
+ * Export slides to PowerPoint (.pptx) or PDF
+ */
+router.post(
+  '/export-slideshow',
+  asyncHandler(async (req: Request, res: Response) => {
+    const validated = exportSlideshowRequestSchema.safeParse(req.body);
+    if (!validated.success) {
+      return res.status(400).json({
+        success: false,
+        error: validated.error.flatten().fieldErrors
+          ? Object.entries(validated.error.flatten().fieldErrors)
+              .map(([k, v]) => `${k}: ${(v as string[]).join(', ')}`)
+              .join('; ')
+          : 'Invalid request body',
+      });
+    }
+    const { slides, title, format } = validated.data;
+    const normalizedSlides = slides.map((s) => ({
+      ...s,
+      imageUrl: s.imageUrl && s.imageUrl.startsWith('http') ? s.imageUrl : undefined,
+    }));
+    const result = await slideshowExportService.exportSlideshow(normalizedSlides, {
+      title: title || 'Presentation',
+      format,
+    });
+    const filename = `slideshow-${Date.now()}.${result.fileExtension}`;
+    res.setHeader('Content-Type', result.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', String(result.buffer.length));
+    return res.send(result.buffer);
   })
 );
 

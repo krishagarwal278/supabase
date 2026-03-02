@@ -447,6 +447,42 @@ export const FAL_ASPECT_RATIOS = {
 export type FalAspectRatio = (typeof FAL_ASPECT_RATIOS)[keyof typeof FAL_ASPECT_RATIOS];
 
 /**
+ * Voice (TTS) – frontend voiceId to OpenAI TTS voice name
+ * English-only; use tts-1-hd or gpt-4o-mini-tts
+ */
+export const VOICE_TTS_MAP: Record<string, string> = {
+  'professional-m': 'onyx',
+  'professional-f': 'nova',
+  'friendly-m': 'echo',
+  'friendly-f': 'shimmer',
+  'energetic-m': 'echo',
+  'energetic-f': 'nova',
+  'calm-m': 'alloy',
+  'calm-f': 'shimmer',
+  'narrator-m': 'fable',
+  'narrator-f': 'nova',
+} as const;
+
+/** Default TTS model for voice synthesis */
+export const TTS_DEFAULT_MODEL = 'tts-1-hd';
+
+/**
+ * Voice list for GET /api/v1/voice/list (matches frontend DEFAULT_AI_VOICES)
+ */
+export const DEFAULT_AI_VOICES = [
+  { id: 'professional-m', name: 'Professional (Male)', description: 'Clear, authoritative' },
+  { id: 'professional-f', name: 'Professional (Female)', description: 'Clear, authoritative' },
+  { id: 'friendly-m', name: 'Friendly (Male)', description: 'Warm, approachable' },
+  { id: 'friendly-f', name: 'Friendly (Female)', description: 'Warm, approachable' },
+  { id: 'energetic-m', name: 'Energetic (Male)', description: 'Upbeat, dynamic' },
+  { id: 'energetic-f', name: 'Energetic (Female)', description: 'Upbeat, dynamic' },
+  { id: 'calm-m', name: 'Calm (Male)', description: 'Soothing, steady' },
+  { id: 'calm-f', name: 'Calm (Female)', description: 'Soothing, steady' },
+  { id: 'narrator-m', name: 'Narrator (Male)', description: 'Documentary style' },
+  { id: 'narrator-f', name: 'Narrator (Female)', description: 'Documentary style' },
+] as const;
+
+/**
  * Request timeouts (in milliseconds)
  */
 export const TIMEOUTS = {

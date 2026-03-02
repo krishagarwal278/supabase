@@ -11,6 +11,7 @@ import fetch, { Headers, Request, Response } from 'node-fetch';
 import { createApp } from './app';
 import { initializeEnv } from '@/config/env';
 import { logger } from '@/lib/logger';
+import { preloadFalClient } from '@/services/image-generation.service';
 
 if (!globalThis.fetch) {
   (globalThis as unknown as Record<string, unknown>).fetch = fetch;
@@ -92,6 +93,10 @@ async function main(): Promise<void> {
 
     // Set up error handlers
     setupErrorHandlers();
+
+    // Preload Fal client so its dynamic import runs at startup, not during a request.
+    // Avoids "Channel closed" when ts-node-dev restarts mid-request.
+    await preloadFalClient();
 
     // Create Express app
     const app = createApp();

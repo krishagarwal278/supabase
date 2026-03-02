@@ -5,7 +5,7 @@
  * Ovi is a unified paradigm for audio-video generation (text-to-video).
  */
 
-import fetch from 'node-fetch';
+import fetch, { Headers, Request, Response } from 'node-fetch';
 import { FAL_CONFIG } from '@/config/constants';
 import { ExternalServiceError, ServiceUnavailableError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
@@ -14,10 +14,11 @@ import { VideoGenerationResult } from '@/types/models';
 
 // Polyfill fetch for Node.js environments that don't have it natively
 if (!globalThis.fetch) {
-  (globalThis as any).fetch = fetch;
-  (globalThis as any).Headers = (fetch as any).Headers;
-  (globalThis as any).Request = (fetch as any).Request;
-  (globalThis as any).Response = (fetch as any).Response;
+  const g = globalThis as unknown as Record<string, unknown>;
+  g.fetch = fetch;
+  g.Headers = Headers;
+  g.Request = Request;
+  g.Response = Response;
 }
 
 // Dynamic import for fal client (after fetch polyfill)
@@ -233,7 +234,7 @@ async function generateSingleClip(
       },
     });
 
-    const videoUrl = (result.data as any)?.video?.url;
+    const videoUrl = (result.data as { video?: { url?: string } } | undefined)?.video?.url;
     const requestId = result.requestId || `fal_${Date.now()}`;
 
     if (!videoUrl) {
@@ -288,7 +289,7 @@ export async function checkVideoStatus(requestId: string): Promise<VideoGenerati
       const result = await fal.queue.result(FAL_CONFIG.MODEL, {
         requestId,
       });
-      const videoUrl = (result.data as any)?.video?.url;
+      const videoUrl = (result.data as { video?: { url?: string } } | undefined)?.video?.url;
 
       return {
         videoId: requestId,
@@ -317,8 +318,17 @@ export async function checkVideoStatus(requestId: string): Promise<VideoGenerati
  */
 function handleFalError(error: unknown): VideoGenerationResult {
   const errorMessage = error instanceof Error ? error.message : String(error);
+  const err = error as Record<string, unknown> | undefined;
+  const statusCode = err?.statusCode ?? err?.status;
+  const body = err?.body ?? err?.response;
 
-  serviceLogger.error('Fal AI error', { error: errorMessage });
+  serviceLogger.error('Fal AI error', {
+    error: errorMessage,
+    ...(statusCode != null && { statusCode }),
+    ...(body != null && {
+      body: typeof body === 'object' ? JSON.stringify(body).slice(0, 500) : body,
+    }),
+  });
 
   if (
     errorMessage.includes('401') ||
