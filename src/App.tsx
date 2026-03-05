@@ -2,8 +2,8 @@
 import { useState, useEffect } from 'react'
 // import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseKey = import.meta.env.VITE_SUPABASE_PROJECT_ID // Using ID as key based on user env logic? No, wait.
+// const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+// const supabaseKey = import.meta.env.VITE_SUPABASE_PROJECT_ID // Using ID as key based on user env logic? No, wait.
 
 // In step 21, .env has:
 // VITE_SUPABASE_PROJECT_ID="bfzlrsefzuwdgiyjodcc"
@@ -16,12 +16,15 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_PROJECT_ID // Using ID as key 
 // But SUPABASE_KEY is typically the anon key for frontend.
 // I will assume the user has configured .env correctly or I might need to check.
 
+// API base URL: use VITE_API_URL in production (e.g. Railway), fallback to localhost for dev
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
+
 function App() {
     const [projects, setProjects] = useState([])
 
     useEffect(() => {
         // Basic fetch from backend for now to prove it works
-        fetch('http://localhost:4000/api/projects')
+        fetch(`${API_BASE}/api/projects`)
             .then(res => res.json())
             .then(data => setProjects(data))
             .catch(err => console.error(err))
