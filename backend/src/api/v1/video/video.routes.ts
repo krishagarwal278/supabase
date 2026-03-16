@@ -135,16 +135,18 @@ router.post(
     const idempotencyKey = validated.data.idempotencyKey;
     if (idempotencyKey) {
       const cached = getIdempotentResponse<{
-        message: string;
-        status: string;
+        message?: string;
+        status?: string;
         projectId?: string;
-        videoId: string;
+        videoId?: string;
         videoUrl?: string;
         videoUrls?: string[];
-        clipCount: number;
-        progress: number;
-        creditsUsed: number;
-        remainingCredits: number;
+        clipCount?: number;
+        progress?: number;
+        creditsUsed?: number;
+        remainingCredits?: number;
+        success?: boolean;
+        error?: string;
       }>(idempotencyKey);
       if (cached) {
         if (cached.status === 'processing') {
@@ -152,6 +154,13 @@ router.post(
             success: false,
             error:
               'Duplicate request; previous request still in progress. Use the same idempotency key when retrying.',
+          });
+        }
+        if (cached.status === 'failed') {
+          const errBody = cached.response as { success?: boolean; error?: string };
+          return res.status(503).json({
+            success: false,
+            error: errBody?.error ?? 'Video generation failed previously.',
           });
         }
         setRateLimitHeaders(res);
@@ -579,9 +588,9 @@ router.post(
     const userId = (req as AuthenticatedRequest).userId ?? validated.data.userId;
 
     if (idempotencyKey) {
-      const cached = getIdempotentResponse<{ slides: unknown[]; totalDuration: number }>(
-        idempotencyKey
-      );
+      const cached = getIdempotentResponse<
+        { slides: unknown[]; totalDuration: number } | { error: string }
+      >(idempotencyKey);
       if (cached) {
         if (cached.status === 'processing') {
           return res.status(409).json({
@@ -590,10 +599,18 @@ router.post(
               'Duplicate request; previous request still in progress. Use the same idempotency key when retrying.',
           });
         }
+        if (cached.status === 'failed') {
+          const errBody = cached.response as { error?: string };
+          return res.status(503).json({
+            success: false,
+            error: errBody?.error ?? 'Slideshow generation failed previously.',
+          });
+        }
+        const payload = cached.response as { slides: unknown[]; totalDuration: number };
         return success(res, {
-          slides: cached.response.slides,
-          totalDuration: cached.response.totalDuration,
-          slideCount: cached.response.slides.length,
+          slides: payload.slides,
+          totalDuration: payload.totalDuration,
+          slideCount: payload.slides.length,
         });
       }
       if (!setIdempotentProcessing(idempotencyKey)) {
