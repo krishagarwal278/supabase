@@ -175,7 +175,7 @@ export async function saveMessage(params: {
       user_id: params.userId,
       role: params.role,
       content: params.content,
-      screenplay_version: params.screenplayVersion || null,
+      screenplay_ver: params.screenplayVersion || null,
       metadata: params.metadata || {},
     })
     .select()
@@ -248,6 +248,89 @@ export async function deleteProjectMessages(projectId: string): Promise<void> {
   if (error) {
     chatLogger.warn('Failed to delete project messages', { projectId, error: error.message });
   }
+}
+
+// =============================================================================
+// Project chat (full load/replace for GET/POST /api/v1/project/:projectId/chat)
+// =============================================================================
+
+export type ProjectChatMessage = {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: string; // ISO 8601
+};
+
+/**
+ * Get project chat messages in API shape (id, role, content, timestamp).
+ * Caller must ensure project belongs to userId.
+ */
+export async function getProjectChat(
+  projectId: string,
+  userId: string
+): Promise<ProjectChatMessage[]> {
+  const messages = await getProjectMessages(projectId, userId, 500);
+  return messages.map((m) => ({
+    id: m.id,
+    role: m.role,
+    content: m.content,
+    timestamp: m.createdAt,
+  }));
+}
+
+/**
+ * Replace project chat with the provided messages (full replace).
+ * Caller must ensure project belongs to userId.
+ */
+export async function replaceProjectChat(
+  projectId: string,
+  userId: string,
+  messages: Array<{
+    id?: string;
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+    timestamp?: string;
+  }>
+): Promise<ProjectChatMessage[]> {
+  const supabase = getServiceClient();
+
+  const { error: deleteError } = await supabase
+    .from(TABLES.CHAT_MESSAGES)
+    .delete()
+    .eq('project_id', projectId);
+
+  if (deleteError) {
+    throw new DatabaseError(`Failed to clear project chat: ${deleteError.message}`);
+  }
+
+  if (messages.length === 0) {
+    return [];
+  }
+
+  const rows = messages.map((m) => ({
+    project_id: projectId,
+    user_id: userId,
+    role: m.role,
+    content: m.content,
+    screenplay_ver: null,
+    metadata: {},
+  }));
+
+  const { data: inserted, error: insertError } = await supabase
+    .from(TABLES.CHAT_MESSAGES)
+    .insert(rows)
+    .select('id, role, content, created_at');
+
+  if (insertError) {
+    throw new DatabaseError(`Failed to save project chat: ${insertError.message}`);
+  }
+
+  return (inserted || []).map((row) => ({
+    id: row.id,
+    role: row.role as 'user' | 'assistant' | 'system',
+    content: row.content,
+    timestamp: row.created_at,
+  }));
 }
 
 // =============================================================================
@@ -356,7 +439,7 @@ function formatMessage(data: Record<string, unknown>): ChatMessage {
     userId: data.user_id as string,
     role: data.role as 'user' | 'assistant' | 'system',
     content: data.content as string,
-    screenplayVersion: data.screenplay_version as number | null,
+    screenplayVersion: data.screenplay_ver as number | null,
     metadata: (data.metadata as Record<string, unknown>) || {},
     createdAt: data.created_at as string,
   };

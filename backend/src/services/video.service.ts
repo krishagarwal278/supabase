@@ -136,7 +136,7 @@ export async function enhanceScreenplay(
   const enhanced = await openaiService.enhanceScreenplay(screenplay, feedback, aiModel);
 
   // Store enhanced version
-  await storeEnhancedScreenplayInHistory(projectId, enhanced);
+  await storeEnhancedScreenplayInHistory(userId, projectId, enhanced);
 
   // Save version if we have project and user context
   let version: number | undefined;
@@ -344,7 +344,7 @@ export async function checkVideoStatus(videoId: string): Promise<VideoGeneration
 }
 
 /**
- * Get all screenplays for a user
+ * Get all screenplays for a user from the screenplays table (so History → Slides and Supabase Table Editor show data).
  */
 export async function getScreenplays(userId?: string): Promise<
   Array<{
@@ -357,13 +357,9 @@ export async function getScreenplays(userId?: string): Promise<
 > {
   const supabase = getServiceClient();
 
-  // Screenplays are stored by the 'system' username with role 'assistant'
-  // They can have chat_id as either 'screenplay_*' or a project UUID
   let query = supabase
-    .from(TABLES.CHAT_HISTORY)
-    .select('*')
-    .eq('username', 'system')
-    .eq('role', 'assistant')
+    .from(TABLES.SCREENPLAYS)
+    .select('id, user_id, project_id, title, format, total_duration, scenes, created_at')
     .order('created_at', { ascending: false });
 
   if (userId) {
@@ -376,38 +372,22 @@ export async function getScreenplays(userId?: string): Promise<
     throw new DatabaseError(`Failed to fetch screenplays: ${error.message}`);
   }
 
-  // Filter to only entries that contain valid screenplay JSON
-  const screenplays: Array<{
-    id: string;
-    chatId: string;
-    userId: string;
-    screenplay: Screenplay;
-    createdAt: string;
-  }> = [];
-
-  for (const entry of data || []) {
-    try {
-      const parsed = JSON.parse(entry.message);
-      // Check if it looks like a screenplay (has scenes array)
-      if (parsed && Array.isArray(parsed.scenes)) {
-        screenplays.push({
-          id: entry.id,
-          chatId: entry.chat_id,
-          userId: entry.user_id,
-          screenplay: parsed,
-          createdAt: entry.created_at,
-        });
-      }
-    } catch {
-      // Not valid JSON or not a screenplay, skip
-    }
-  }
-
-  return screenplays;
+  return (data || []).map((row) => ({
+    id: row.id,
+    chatId: row.project_id ?? row.id,
+    userId: row.user_id,
+    screenplay: {
+      title: row.title,
+      format: row.format,
+      totalDuration: row.total_duration,
+      scenes: row.scenes as Screenplay['scenes'],
+    } as Screenplay,
+    createdAt: row.created_at,
+  }));
 }
 
 /**
- * Get screenplays for a specific project
+ * Get screenplays for a specific project from the screenplays table.
  */
 export async function getProjectScreenplays(projectId: string): Promise<
   Array<{
@@ -420,50 +400,60 @@ export async function getProjectScreenplays(projectId: string): Promise<
 > {
   const supabase = getServiceClient();
 
-  // Screenplays for a project are stored with chat_id = projectId
   const { data, error } = await supabase
-    .from(TABLES.CHAT_HISTORY)
-    .select('*')
-    .eq('chat_id', projectId)
-    .eq('username', 'system')
-    .eq('role', 'assistant')
+    .from(TABLES.SCREENPLAYS)
+    .select('id, user_id, project_id, title, format, total_duration, scenes, created_at')
+    .eq('project_id', projectId)
     .order('created_at', { ascending: false });
 
   if (error) {
     throw new DatabaseError(`Failed to fetch project screenplays: ${error.message}`);
   }
 
-  const screenplays: Array<{
-    id: string;
-    chatId: string;
-    userId: string;
-    screenplay: Screenplay;
-    createdAt: string;
-  }> = [];
-
-  for (const entry of data || []) {
-    try {
-      const parsed = JSON.parse(entry.message);
-      if (parsed && Array.isArray(parsed.scenes)) {
-        screenplays.push({
-          id: entry.id,
-          chatId: entry.chat_id,
-          userId: entry.user_id,
-          screenplay: parsed,
-          createdAt: entry.created_at,
-        });
-      }
-    } catch {
-      // Not valid JSON or not a screenplay, skip
-    }
-  }
-
-  return screenplays;
+  return (data || []).map((row) => ({
+    id: row.id,
+    chatId: row.project_id ?? row.id,
+    userId: row.user_id,
+    screenplay: {
+      title: row.title,
+      format: row.format,
+      totalDuration: row.total_duration,
+      scenes: row.scenes as Screenplay['scenes'],
+    } as Screenplay,
+    createdAt: row.created_at,
+  }));
 }
 
 // =============================================================================
 // Helper Functions
 // =============================================================================
+
+/** Insert into the screenplays table (so data appears in Supabase Table Editor and has proper schema) */
+async function insertIntoScreenplaysTable(params: {
+  userId: string;
+  projectId?: string | null;
+  title: string;
+  format: string;
+  totalDuration: number;
+  scenes: Screenplay['scenes'];
+  sourceChatId?: string | null;
+}): Promise<void> {
+  const supabase = getServiceClient();
+  const { error } = await supabase.from(TABLES.SCREENPLAYS).insert([
+    {
+      user_id: params.userId,
+      project_id: params.projectId ?? null,
+      title: params.title,
+      format: params.format,
+      total_duration: params.totalDuration,
+      scenes: params.scenes as unknown as Record<string, unknown>[],
+      source_chat_id: params.sourceChatId ?? null,
+    },
+  ]);
+  if (error) {
+    serviceLogger.warn('Failed to insert into screenplays table', { error: error.message });
+  }
+}
 
 async function storeScreenplayInHistory(
   userId: string,
@@ -485,9 +475,20 @@ async function storeScreenplayInHistory(
   if (error) {
     serviceLogger.warn('Failed to store screenplay in history', { error: error.message });
   }
+
+  await insertIntoScreenplaysTable({
+    userId,
+    projectId,
+    title: screenplay.title,
+    format: screenplay.format,
+    totalDuration: screenplay.totalDuration,
+    scenes: screenplay.scenes,
+    sourceChatId: projectId,
+  });
 }
 
 async function storeEnhancedScreenplayInHistory(
+  userId: string | undefined,
   projectId: string | undefined,
   screenplay: Screenplay
 ): Promise<void> {
@@ -496,7 +497,7 @@ async function storeEnhancedScreenplayInHistory(
 
   const { error } = await supabase.from(TABLES.CHAT_HISTORY).insert([
     {
-      user_id: projectId || 'anonymous',
+      user_id: userId || 'anonymous',
       chat_id: chatId,
       username: 'system',
       role: 'assistant',
@@ -506,6 +507,18 @@ async function storeEnhancedScreenplayInHistory(
 
   if (error) {
     serviceLogger.warn('Failed to store enhanced screenplay', { error: error.message });
+  }
+
+  if (userId) {
+    await insertIntoScreenplaysTable({
+      userId,
+      projectId: projectId ?? null,
+      title: screenplay.title,
+      format: screenplay.format,
+      totalDuration: screenplay.totalDuration,
+      scenes: screenplay.scenes,
+      sourceChatId: projectId ?? undefined,
+    });
   }
 }
 
@@ -570,4 +583,124 @@ async function storeVideoGenerationResult(
       ),
     },
   ]);
+}
+
+/**
+ * Persist a generated slideshow to the slideshows table only (not screenplays or chat_history).
+ * Stores just the slides (images + metadata); input content/context from the frontend is not stored.
+ */
+export async function persistSlideshow(params: {
+  userId: string;
+  projectId?: string;
+  title?: string;
+  slides: Array<{
+    slideNumber: number;
+    title: string;
+    bulletPoints?: string[];
+    narration?: string;
+    visualDescription?: string;
+    imageUrl?: string;
+  }>;
+  slideDuration: number;
+}): Promise<void> {
+  const { userId, projectId, title, slides, slideDuration } = params;
+  const totalDuration = slides.length * slideDuration;
+
+  const supabase = getServiceClient();
+  const { error } = await supabase.from(TABLES.SLIDESHOWS).insert([
+    {
+      user_id: userId,
+      project_id: projectId ?? null,
+      title: title ?? null,
+      slide_count: slides.length,
+      total_duration: totalDuration,
+      slides: slides as unknown as Record<string, unknown>[],
+    },
+  ]);
+
+  if (error) {
+    serviceLogger.warn('Failed to persist slideshow', { error: error.message });
+  } else {
+    serviceLogger.info('Slideshow persisted', { userId, projectId, slideCount: slides.length });
+  }
+}
+
+/** Return type for a single slideshow from the table */
+export type StoredSlideshow = {
+  id: string;
+  userId: string;
+  projectId: string | null;
+  title: string | null;
+  slideCount: number;
+  totalDuration: number;
+  slides: Array<{
+    slideNumber: number;
+    title: string;
+    bulletPoints?: string[];
+    narration?: string;
+    visualDescription?: string;
+    imageUrl?: string;
+  }>;
+  createdAt: string;
+};
+
+/**
+ * Get all slideshows for a user (from slideshows table).
+ */
+export async function getSlideshows(userId?: string): Promise<StoredSlideshow[]> {
+  const supabase = getServiceClient();
+
+  let query = supabase
+    .from(TABLES.SLIDESHOWS)
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (userId) {
+    query = query.eq('user_id', userId);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    throw new DatabaseError(`Failed to fetch slideshows: ${error.message}`);
+  }
+
+  return (data || []).map((row) => ({
+    id: row.id,
+    userId: row.user_id,
+    projectId: row.project_id,
+    title: row.title,
+    slideCount: row.slide_count,
+    totalDuration: row.total_duration,
+    slides: (row.slides || []) as StoredSlideshow['slides'],
+    createdAt: row.created_at,
+  }));
+}
+
+/**
+ * Get slideshows for a specific project (from slideshows table).
+ */
+export async function getProjectSlideshows(projectId: string): Promise<StoredSlideshow[]> {
+  const supabase = getServiceClient();
+
+  const { data, error } = await supabase
+    .from(TABLES.SLIDESHOWS)
+    .select('*')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    throw new DatabaseError(`Failed to fetch project slideshows: ${error.message}`);
+  }
+
+  return (data || []).map((row) => ({
+    id: row.id,
+    userId: row.user_id,
+    projectId: row.project_id,
+    title: row.title,
+    slideCount: row.slide_count,
+    totalDuration: row.total_duration,
+    slides: (row.slides || []) as StoredSlideshow['slides'],
+    createdAt: row.created_at,
+  }));
 }

@@ -70,6 +70,7 @@ export interface SlideshowRequest {
   aspectRatio?: '16:9' | '4:3';
   contentAiModel?: 'openai' | 'kimi';
   userId?: string;
+  projectId?: string;
 }
 
 export interface SlideData {
