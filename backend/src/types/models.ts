@@ -23,6 +23,7 @@ export interface Project {
   thumbnail_url: string | null;
   video_url: string | null;
   script: string | null;
+  user_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -201,6 +202,7 @@ export type InterestUserRole =
   | 'self_learner'
   | 'educator'
   | 'content_creator'
+  | 'teachable_creator'
   | 'professional'
   | 'developer'
   | 'other';

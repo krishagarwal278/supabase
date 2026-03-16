@@ -58,8 +58,8 @@ function buildEnvObject(): Record<string, string | undefined> {
     NODE_ENV: process.env['NODE_ENV'],
     PORT: process.env['PORT'],
     SUPABASE_URL: getEnvValue('SUPABASE_URL'),
-    SUPABASE_SERVICE_ROLE_KEY:
-      process.env['SUPABASE_SERVICE_ROLE_KEY'] || process.env['SUPABASE_KEY'],
+    // Backend must use service_role key to bypass RLS (chat_history, storage). Do NOT use anon key.
+    SUPABASE_SERVICE_ROLE_KEY: process.env['SUPABASE_SERVICE_ROLE_KEY'],
     SUPABASE_ANON_KEY: getEnvValue('SUPABASE_ANON_KEY'),
     OPENAI_API_KEY: process.env['OPENAI_API_KEY'],
     RUNWAY_API_KEY: process.env['RUNWAY_API_KEY'],

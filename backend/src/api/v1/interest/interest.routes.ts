@@ -17,12 +17,13 @@ const router = Router();
 // Schemas
 // =============================================================================
 
-// Enum values for validation
+// Enum values for validation (must match frontend "I am a..." dropdown values)
 const userRoles = [
   'student',
   'self_learner',
   'educator',
   'content_creator',
+  'teachable_creator', // frontend "Teachable Creator" option
   'professional',
   'developer',
   'other',

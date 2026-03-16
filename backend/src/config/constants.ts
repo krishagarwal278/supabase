@@ -11,6 +11,8 @@
 export const TABLES = {
   PROJECTS: 'projects',
   CHAT_HISTORY: 'chat_history',
+  SCREENPLAYS: 'screenplays',
+  SLIDESHOWS: 'slideshows',
   CHAT_MESSAGES: 'chat_messages',
   SCREENPLAY_VERSIONS: 'screenplay_versions',
   PEXELS_VIDEOS: 'pexels_videos',

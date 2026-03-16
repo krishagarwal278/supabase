@@ -38,17 +38,12 @@ interface HealthStatus {
 
 /**
  * GET /health
- * Basic health check (for load balancers/k8s probes)
+ * Basic health check (for Railway, load balancers, k8s probes).
+ * Returns 200 and { "status": "ok" } so orchestrators can rely on a stable contract.
  */
-router.get(
-  '/',
-  asyncHandler(async (_req: Request, res: Response) => {
-    return success(res, {
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-    });
-  })
-);
+router.get('/', (_req: Request, res: Response) => {
+  res.status(200).json({ status: 'ok' });
+});
 
 /**
  * GET /health/live

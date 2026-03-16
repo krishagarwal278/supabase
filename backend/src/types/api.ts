@@ -67,6 +67,7 @@ export const screenplaySceneSchema = z.object({
   narration: z.string(),
   textOverlay: z.string().optional(),
   transition: z.string().optional(),
+  imageUrl: z.string().url().optional(), // slide/slideshow image URL (persisted for History → Slides)
 });
 
 /**
@@ -121,6 +122,7 @@ export const generateVideoRequestSchema = z.object({
   projectId: uuidSchema.optional(),
   screenplay: screenplaySchema,
   userId: z.string().optional(),
+  idempotencyKey: z.string().max(256).optional(),
 });
 
 // =============================================================================
@@ -239,6 +241,8 @@ export const slideshowRequestSchema = z.object({
   aspectRatio: z.enum(['16:9', '4:3']).default('16:9'),
   contentAiModel: slideshowContentAiSchema.optional(),
   userId: z.string().optional(),
+  projectId: uuidSchema.optional(),
+  idempotencyKey: z.string().max(256).optional(),
 });
 
 /**
