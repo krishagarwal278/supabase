@@ -7,7 +7,14 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { ValidationError } from '@/lib/errors';
+import {
+  getIdempotentResponse,
+  setIdempotentResponse,
+  setIdempotentProcessing,
+} from '@/lib/idempotency';
 import { success } from '@/lib/response';
+import { optionalAuth } from '@/middleware/auth';
+import type { AuthenticatedRequest } from '@/middleware/auth';
 import { asyncHandler } from '@/middleware/error-handler';
 import {
   videoService,
@@ -33,6 +40,9 @@ import {
 import type { RateLimitInfo } from '@/types/models';
 
 const router = Router();
+
+/** Prefer JWT userId when present; all video routes get optional auth context */
+router.use(optionalAuth);
 
 /** Multer memory storage for document upload (max 15MB for strategy docs) */
 const documentUpload = multer({
@@ -111,7 +121,7 @@ router.post(
 /**
  * POST /api/v1/video/generate-video
  * Generate actual video from screenplay
- * Includes credit check and rate limiting
+ * Includes credit check and rate limiting. Supports idempotencyKey to avoid duplicate charges on retries.
  */
 router.post(
   '/generate-video',
@@ -122,7 +132,58 @@ router.post(
       throw validated.error;
     }
 
-    const result = await videoService.generateVideo(validated.data);
+    const idempotencyKey = validated.data.idempotencyKey;
+    if (idempotencyKey) {
+      const cached = getIdempotentResponse<{
+        message?: string;
+        status?: string;
+        projectId?: string;
+        videoId?: string;
+        videoUrl?: string;
+        videoUrls?: string[];
+        clipCount?: number;
+        progress?: number;
+        creditsUsed?: number;
+        remainingCredits?: number;
+        success?: boolean;
+        error?: string;
+      }>(idempotencyKey);
+      if (cached) {
+        if (cached.status === 'processing') {
+          return res.status(409).json({
+            success: false,
+            error:
+              'Duplicate request; previous request still in progress. Use the same idempotency key when retrying.',
+          });
+        }
+        if (cached.status === 'failed') {
+          const errBody = cached.response as { success?: boolean; error?: string };
+          return res.status(503).json({
+            success: false,
+            error: errBody?.error ?? 'Video generation failed previously.',
+          });
+        }
+        setRateLimitHeaders(res);
+        return success(res, cached.response);
+      }
+      if (!setIdempotentProcessing(idempotencyKey)) {
+        return res.status(409).json({
+          success: false,
+          error: 'Duplicate idempotency key.',
+        });
+      }
+    }
+
+    let result;
+    try {
+      result = await videoService.generateVideo(validated.data);
+    } catch (err) {
+      if (idempotencyKey) {
+        const message = err instanceof Error ? err.message : 'Video generation failed';
+        setIdempotentResponse(idempotencyKey, 'failed', { success: false, error: message });
+      }
+      throw err;
+    }
 
     // Set rate limit headers
     setRateLimitHeaders(res, result.rateLimitInfo);
@@ -130,7 +191,7 @@ router.post(
     // Also include credits info in header
     res.setHeader('X-Credits-Remaining', result.remainingCredits);
 
-    return success(res, {
+    const payload = {
       message:
         result.status === 'completed'
           ? `Video generated successfully! ${result.clipCount} clips created.`
@@ -144,7 +205,16 @@ router.post(
       progress: result.progress,
       creditsUsed: result.creditsUsed,
       remainingCredits: result.remainingCredits,
-    });
+    };
+    if (idempotencyKey) {
+      setIdempotentResponse(
+        idempotencyKey,
+        result.status === 'failed' ? 'failed' : 'completed',
+        payload
+      );
+    }
+
+    return success(res, payload);
   })
 );
 
@@ -207,12 +277,14 @@ router.get(
 
 /**
  * GET /api/v1/video/screenplays
- * Get all screenplays
+ * Get all screenplays for the current user.
+ * Prefers userId from JWT when authenticated; falls back to query userId for backward compatibility.
  */
 router.get(
   '/screenplays',
   asyncHandler(async (req: Request, res: Response) => {
-    const userId = req.query['userId'] as string | undefined;
+    const userId =
+      (req as AuthenticatedRequest).userId ?? (req.query['userId'] as string | undefined);
 
     const screenplays = await videoService.getScreenplays(userId);
 
@@ -236,6 +308,41 @@ router.get(
     const screenplays = await videoService.getProjectScreenplays(idResult.data);
 
     return success(res, { screenplays });
+  })
+);
+
+/**
+ * GET /api/v1/video/slideshows
+ * Get all slideshows for the current user (from slideshows table only).
+ */
+router.get(
+  '/slideshows',
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId =
+      (req as AuthenticatedRequest).userId ?? (req.query['userId'] as string | undefined);
+
+    const slideshows = await videoService.getSlideshows(userId);
+
+    return success(res, { slideshows });
+  })
+);
+
+/**
+ * GET /api/v1/video/project/:id/slideshows
+ * Get slideshows for a specific project (from slideshows table only).
+ */
+router.get(
+  '/project/:id/slideshows',
+  asyncHandler(async (req: Request, res: Response) => {
+    const idResult = uuidSchema.safeParse(req.params['id']);
+
+    if (!idResult.success) {
+      throw new ValidationError('Invalid project ID format');
+    }
+
+    const slideshows = await videoService.getProjectSlideshows(idResult.data);
+
+    return success(res, { slideshows });
   })
 );
 
@@ -467,6 +574,8 @@ router.post(
       aspectRatio: body.aspectRatio,
       contentAiModel: body.contentAiModel,
       userId: body.userId,
+      projectId: body.projectId,
+      idempotencyKey: body.idempotencyKey,
     };
 
     const validated = slideshowRequestSchema.safeParse(normalized);
@@ -475,20 +584,75 @@ router.post(
       throw validated.error;
     }
 
+    const { projectId, idempotencyKey } = validated.data;
+    const userId = (req as AuthenticatedRequest).userId ?? validated.data.userId;
+
+    if (idempotencyKey) {
+      const cached = getIdempotentResponse<
+        { slides: unknown[]; totalDuration: number } | { error: string }
+      >(idempotencyKey);
+      if (cached) {
+        if (cached.status === 'processing') {
+          return res.status(409).json({
+            success: false,
+            error:
+              'Duplicate request; previous request still in progress. Use the same idempotency key when retrying.',
+          });
+        }
+        if (cached.status === 'failed') {
+          const errBody = cached.response as { error?: string };
+          return res.status(503).json({
+            success: false,
+            error: errBody?.error ?? 'Slideshow generation failed previously.',
+          });
+        }
+        const payload = cached.response as { slides: unknown[]; totalDuration: number };
+        return success(res, {
+          slides: payload.slides,
+          totalDuration: payload.totalDuration,
+          slideCount: payload.slides.length,
+        });
+      }
+      if (!setIdempotentProcessing(idempotencyKey)) {
+        return res.status(409).json({
+          success: false,
+          error: 'Duplicate idempotency key.',
+        });
+      }
+    }
+
     const result = await slideshowService.generateSlideshow(validated.data);
 
     if (!result.success) {
+      if (idempotencyKey) {
+        setIdempotentResponse(idempotencyKey, 'failed', { error: result.error });
+      }
       return res.status(500).json({
         success: false,
         error: result.error,
       });
     }
 
-    return success(res, {
+    if (userId) {
+      await videoService.persistSlideshow({
+        userId,
+        projectId,
+        title: validated.data.title,
+        slides: result.slides,
+        slideDuration: validated.data.slideDuration ?? 5,
+      });
+    }
+
+    const payload = {
       slides: result.slides,
       totalDuration: result.totalDuration,
       slideCount: result.slides.length,
-    });
+    };
+    if (idempotencyKey) {
+      setIdempotentResponse(idempotencyKey, 'completed', payload);
+    }
+
+    return success(res, payload);
   })
 );
 

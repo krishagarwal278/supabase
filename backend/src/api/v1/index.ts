@@ -10,6 +10,7 @@ import creditsRoutes from './credits/credits.routes';
 import healthRoutes from './health/health.routes';
 import historyRoutes from './history/history.routes';
 import interestRoutes from './interest/interest.routes';
+import projectChatRoutes from './project-chat/project-chat.routes';
 import projectsRoutes from './projects/projects.routes';
 import usersRoutes from './users/users.routes';
 import videoRoutes from './video/video.routes';
@@ -32,6 +33,7 @@ const asRouter = (r: unknown, name: string): ReturnType<typeof Router> => {
 
 // Mount routes
 router.use('/projects', asRouter(projectsRoutes, 'projects'));
+router.use('/project', asRouter(projectChatRoutes, 'project-chat'));
 router.use('/video', asRouter(videoRoutes, 'video'));
 router.use('/chat', asRouter(chatRoutes, 'chat'));
 router.use('/credits', asRouter(creditsRoutes, 'credits'));

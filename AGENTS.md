@@ -6,7 +6,7 @@ This repo contains the **Videaa backend** (Express in `backend/`) and Supabase c
 
 Before merging backend changes, ensure they align with the shared standards. Use the **Backend repo checklist**:
 
-- **[docs/backend-checklist.md](docs/backend-checklist.md)** — Deployment (health, env vars, Node 20), CORS, Supabase service role, API contract, .env.example, layers (validation → logic → response), status codes, RLS.
+- **[docs/backend-checklist.md](docs/backend-checklist.md)** — Deployment (health, env vars, Node 20), CORS, Supabase service role, API contract ([docs/api.md](docs/api.md)), .env.example, layers (validation → logic → response), status codes, RLS.
 
 That checklist is the single place that points to:
 
