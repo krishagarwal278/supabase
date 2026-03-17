@@ -22,8 +22,14 @@ const userRoles = [
   'student',
   'self_learner',
   'educator',
+  'educator_professor', // Educator / Professor
   'content_creator',
-  'teachable_creator', // frontend "Teachable Creator" option
+  'teachable_creator', // Teachable Creator
+  'udemy_instructor',
+  'coursera_creator',
+  'corporate_trainer', // Corporate Trainer / L&D
+  'instructional_designer',
+  'certification_body',
   'professional',
   'developer',
   'other',
@@ -31,14 +37,21 @@ const userRoles = [
 
 const earlyAccessPriorities = ['very_interested', 'somewhat_interested', 'just_exploring'] as const;
 
+// What do you teach? (optional) — frontend tags + backend legacy values
 const videoTopics = [
   'technical_skills',
   'business_finance',
   'academic',
+  'academic_subjects', // frontend "Academic Subjects"
   'creative_skills',
+  'creative_design', // frontend "Creative & Design"
   'language_learning',
+  'languages', // frontend "Languages"
   'career_prep',
+  'professional_certs', // frontend "Professional Certs"
   'personal_development',
+  'personal_dev', // frontend "Personal Dev"
+  'programming_tech', // frontend "Programming & Tech"
 ] as const;
 
 const useCases = [
@@ -52,6 +65,24 @@ const useCases = [
 
 const aiExperienceLevels = ['beginner', 'intermediate', 'advanced', 'power_user'] as const;
 
+// Biggest challenge? (optional) — frontend dropdown
+const biggestChallenges = [
+  'recording_takes_too_long',
+  'editing_tedious',
+  'voice_quality_issues',
+  'keeping_content_updated',
+  'scaling_content',
+  'production_costs',
+] as const;
+
+// Export needs (optional) — frontend dropdown
+const exportNeedsOptions = [
+  'udemy_mp4',
+  'scorm_lms',
+  'coursera_format',
+  'multiple_platforms',
+] as const;
+
 const submitInterestSchema = z.object({
   // Required fields
   fullName: z.string().min(1, 'Full name is required').max(100),
@@ -64,6 +95,8 @@ const submitInterestSchema = z.object({
   videoTopics: z.array(z.enum(videoTopics)).optional(),
   useCase: z.enum(useCases).optional(),
   aiExperience: z.enum(aiExperienceLevels).optional(),
+  biggestChallenge: z.enum(biggestChallenges).optional(),
+  exportNeeds: z.enum(exportNeedsOptions).optional(),
 });
 
 const updateStatusSchema = z.object({

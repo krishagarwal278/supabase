@@ -201,8 +201,14 @@ export type InterestUserRole =
   | 'student'
   | 'self_learner'
   | 'educator'
+  | 'educator_professor'
   | 'content_creator'
   | 'teachable_creator'
+  | 'udemy_instructor'
+  | 'coursera_creator'
+  | 'corporate_trainer'
+  | 'instructional_designer'
+  | 'certification_body'
   | 'professional'
   | 'developer'
   | 'other';
@@ -213,19 +219,25 @@ export type InterestUserRole =
 export type EarlyAccessPriority = 'very_interested' | 'somewhat_interested' | 'just_exploring';
 
 /**
- * Video topics of interest
+ * Video topics / What do you teach? (frontend tags + legacy)
  */
 export type VideoTopic =
   | 'technical_skills'
   | 'business_finance'
   | 'academic'
+  | 'academic_subjects'
   | 'creative_skills'
+  | 'creative_design'
   | 'language_learning'
+  | 'languages'
   | 'career_prep'
-  | 'personal_development';
+  | 'professional_certs'
+  | 'personal_development'
+  | 'personal_dev'
+  | 'programming_tech';
 
 /**
- * Use case options
+ * Use case options (optional; frontend may not show this field)
  */
 export type UseCase =
   | 'create_learning_videos'
@@ -241,6 +253,22 @@ export type UseCase =
 export type AiExperience = 'beginner' | 'intermediate' | 'advanced' | 'power_user';
 
 /**
+ * Biggest challenge? (optional) — frontend dropdown
+ */
+export type BiggestChallenge =
+  | 'recording_takes_too_long'
+  | 'editing_tedious'
+  | 'voice_quality_issues'
+  | 'keeping_content_updated'
+  | 'scaling_content'
+  | 'production_costs';
+
+/**
+ * Export needs (optional) — frontend dropdown
+ */
+export type ExportNeeds = 'udemy_mp4' | 'scorm_lms' | 'coursera_format' | 'multiple_platforms';
+
+/**
  * Interest submission database row
  */
 export interface InterestSubmissionRow {
@@ -252,6 +280,8 @@ export interface InterestSubmissionRow {
   video_topics: VideoTopic[] | null;
   use_case: UseCase | null;
   ai_experience: AiExperience | null;
+  biggest_challenge: BiggestChallenge | null;
+  export_needs: ExportNeeds | null;
   status: InterestSubmissionStatus;
   is_beta_user: boolean;
   created_at: string;
@@ -270,6 +300,8 @@ export interface InterestSubmission {
   videoTopics: VideoTopic[] | null;
   useCase: UseCase | null;
   aiExperience: AiExperience | null;
+  biggestChallenge: BiggestChallenge | null;
+  exportNeeds: ExportNeeds | null;
   status: InterestSubmissionStatus;
   isBetaUser: boolean;
   createdAt: string;
@@ -287,6 +319,8 @@ export interface InterestFormData {
   videoTopics?: VideoTopic[];
   useCase?: UseCase;
   aiExperience?: AiExperience;
+  biggestChallenge?: BiggestChallenge;
+  exportNeeds?: ExportNeeds;
 }
 
 /**

@@ -32,6 +32,8 @@ function toApiFormat(row: InterestSubmissionRow): InterestSubmission {
     videoTopics: row.video_topics,
     useCase: row.use_case,
     aiExperience: row.ai_experience,
+    biggestChallenge: row.biggest_challenge ?? null,
+    exportNeeds: row.export_needs ?? null,
     status: row.status,
     isBetaUser: row.is_beta_user,
     createdAt: row.created_at,
@@ -72,6 +74,8 @@ export async function submitInterestForm(data: InterestFormData): Promise<Intere
         video_topics: data.videoTopics || null,
         use_case: data.useCase || null,
         ai_experience: data.aiExperience || null,
+        biggest_challenge: data.biggestChallenge ?? null,
+        export_needs: data.exportNeeds ?? null,
         status: 'pending' as InterestSubmissionStatus,
         is_beta_user: false,
       })
