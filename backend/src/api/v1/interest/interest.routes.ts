@@ -32,10 +32,22 @@ const userRoles = [
   'certification_body',
   'professional',
   'developer',
+  'solopreneur', // Solopreneur / Individual
   'other',
 ] as const;
 
-const earlyAccessPriorities = ['very_interested', 'somewhat_interested', 'just_exploring'] as const;
+// Interest level + "Courses created" dropdown (all valid permutations)
+const earlyAccessPriorities = [
+  'very_interested',
+  'somewhat_interested',
+  'just_exploring',
+  'planning_my_first_course', // Planning my first course
+  'one_to_ten_courses', // 1-10 courses
+  'power_creator', // 10+ courses (Power creator)
+  'few_courses',
+  'many_courses',
+  'scale_courses',
+] as const;
 
 // What do you teach? (optional) — frontend tags + backend legacy values
 const videoTopics = [
@@ -83,20 +95,31 @@ const exportNeedsOptions = [
   'multiple_platforms',
 ] as const;
 
+// Optional enum: accept empty string from "Select..." placeholder and treat as omitted
+function optionalEnum<T extends readonly [string, ...string[]]>(values: T) {
+  return z
+    .preprocess((v) => (v === '' || v == null ? undefined : v), z.enum(values).optional())
+    .optional();
+}
+
 const submitInterestSchema = z.object({
   // Required fields
   fullName: z.string().min(1, 'Full name is required').max(100),
   email: z.string().email('Invalid email address'),
   role: z.enum(userRoles, { errorMap: () => ({ message: 'Please select a valid role' }) }),
   earlyAccessPriority: z.enum(earlyAccessPriorities, {
-    errorMap: () => ({ message: 'Please select your interest level' }),
+    errorMap: () => ({ message: 'Please select "Courses created"' }),
   }),
-  // Optional fields
-  videoTopics: z.array(z.enum(videoTopics)).optional(),
-  useCase: z.enum(useCases).optional(),
-  aiExperience: z.enum(aiExperienceLevels).optional(),
-  biggestChallenge: z.enum(biggestChallenges).optional(),
-  exportNeeds: z.enum(exportNeedsOptions).optional(),
+  // Optional: any combination of tags (0 to all), max 20 for safety
+  videoTopics: z
+    .array(z.enum(videoTopics))
+    .max(20, 'Select up to 20 topics')
+    .optional()
+    .default([]),
+  useCase: optionalEnum(useCases),
+  aiExperience: optionalEnum(aiExperienceLevels),
+  biggestChallenge: optionalEnum(biggestChallenges),
+  exportNeeds: optionalEnum(exportNeedsOptions),
 });
 
 const updateStatusSchema = z.object({
@@ -118,7 +141,12 @@ router.post(
     const validated = submitInterestSchema.safeParse(req.body);
 
     if (!validated.success) {
-      throw new ValidationError(validated.error.message);
+      const first = validated.error.flatten().fieldErrors;
+      const msg =
+        first && Object.keys(first).length > 0
+          ? `${Object.keys(first)[0]}: ${(Object.values(first)[0] as string[])?.[0] ?? validated.error.message}`
+          : validated.error.message;
+      throw new ValidationError(msg);
     }
 
     const submission = await interestService.submitInterestForm(validated.data);

@@ -211,12 +211,22 @@ export type InterestUserRole =
   | 'certification_body'
   | 'professional'
   | 'developer'
+  | 'solopreneur'
   | 'other';
 
 /**
- * Early access priority/interest level
+ * Early access priority/interest level + "Courses created" dropdown values
  */
-export type EarlyAccessPriority = 'very_interested' | 'somewhat_interested' | 'just_exploring';
+export type EarlyAccessPriority =
+  | 'very_interested'
+  | 'somewhat_interested'
+  | 'just_exploring'
+  | 'planning_my_first_course'
+  | 'one_to_ten_courses'
+  | 'power_creator'
+  | 'few_courses'
+  | 'many_courses'
+  | 'scale_courses';
 
 /**
  * Video topics / What do you teach? (frontend tags + legacy)

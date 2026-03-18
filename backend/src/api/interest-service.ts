@@ -71,7 +71,7 @@ export async function submitInterestForm(data: InterestFormData): Promise<Intere
         email: data.email,
         role: data.role,
         early_access_priority: data.earlyAccessPriority,
-        video_topics: data.videoTopics || null,
+        video_topics: data.videoTopics && data.videoTopics.length > 0 ? data.videoTopics : null,
         use_case: data.useCase || null,
         ai_experience: data.aiExperience || null,
         biggest_challenge: data.biggestChallenge ?? null,
