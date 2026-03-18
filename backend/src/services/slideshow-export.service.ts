@@ -16,6 +16,10 @@ export interface SlideDataExport {
   narration: string;
   visualDescription: string;
   imageUrl?: string;
+  /** Optional key fact/number (e.g. for badge) */
+  keyStat?: string;
+  /** Optional secondary line under title (e.g. date, source) */
+  subtitle?: string;
 }
 
 const serviceLogger = logger.child({ service: 'slideshow-export' });
@@ -40,19 +44,45 @@ export async function exportToPptx(slides: SlideDataExport[], title: string): Pr
 
   for (const slide of slides) {
     const pptSlide = pres.addSlide();
+    const yTitle = 0.25;
     pptSlide.addText(slide.title, {
       x: 0.5,
-      y: 0.25,
-      w: 9,
+      y: yTitle,
+      w: slide.keyStat ? 7 : 9,
       h: 0.75,
       fontSize: 24,
       bold: true,
       color: '363636',
     });
+    if (slide.keyStat) {
+      pptSlide.addText(slide.keyStat, {
+        x: 7.5,
+        y: 0.3,
+        w: 2,
+        h: 0.5,
+        fontSize: 12,
+        color: '363636',
+        align: 'right',
+        fill: { color: 'E8E8E8' },
+        shape: 'roundRect',
+      });
+    }
+    let yBody = 1.15;
+    if (slide.subtitle) {
+      pptSlide.addText(slide.subtitle, {
+        x: 0.5,
+        y: 1.0,
+        w: 9,
+        h: 0.4,
+        fontSize: 12,
+        color: '606060',
+      });
+      yBody = 1.45;
+    }
     const bulletText = slide.bulletPoints.map((b) => `• ${b}`).join('\n');
     pptSlide.addText(bulletText, {
       x: 0.5,
-      y: 1.15,
+      y: yBody,
       w: 5.5,
       h: 4,
       fontSize: 14,
@@ -87,15 +117,37 @@ export async function exportToPdf(slides: SlideDataExport[], _title: string): Pr
 
   for (const slide of slides) {
     const page = doc.addPage([pageWidth, pageHeight]);
+    let y = pageHeight - margin - 24;
     page.drawText(slide.title, {
       x: margin,
-      y: pageHeight - margin - 24,
+      y,
       size: 22,
       font: fontBold,
       color: rgb(0.21, 0.21, 0.21),
-      maxWidth: contentWidth,
+      maxWidth: contentWidth - (slide.keyStat ? 120 : 0),
     });
-    let y = pageHeight - margin - 60;
+    if (slide.keyStat) {
+      page.drawText(slide.keyStat, {
+        x: contentWidth - 110 + margin,
+        y: pageHeight - margin - 20,
+        size: 11,
+        font,
+        color: rgb(0.3, 0.3, 0.3),
+      });
+    }
+    y -= 28;
+    if (slide.subtitle) {
+      page.drawText(slide.subtitle, {
+        x: margin,
+        y,
+        size: 11,
+        font,
+        color: rgb(0.38, 0.38, 0.38),
+        maxWidth: contentWidth,
+      });
+      y -= 22;
+    }
+    y -= 14;
     const lineHeight = 18;
     const fontSize = 12;
     for (const bullet of slide.bulletPoints) {

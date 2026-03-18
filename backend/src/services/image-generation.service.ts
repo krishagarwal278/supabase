@@ -118,6 +118,8 @@ export interface SlideContent {
   bulletPoints: string[];
   visualDescription: string;
   slideNumber: number;
+  /** When set (e.g. from Kimi slide extraction), use this for FLUX instead of calling the image-prompt LLM */
+  preGeneratedImagePrompt?: string;
 }
 
 export interface GeneratedSlide {
@@ -250,7 +252,9 @@ export async function generateSlideImage(
 
   await initializeFalClient();
 
-  const prompt = await generateImagePrompt(slide, style, { promptProvider });
+  const prompt =
+    slide.preGeneratedImagePrompt?.trim() ||
+    (await generateImagePrompt(slide, style, { promptProvider }));
 
   serviceLogger.info('Generating slide image', {
     slideNumber: slide.slideNumber,

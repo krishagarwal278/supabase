@@ -255,15 +255,30 @@ export const previewSlideshowRequestSchema = z.object({
   userId: z.string().optional(),
 });
 
-/** Slide shape for export (PPT/PDF) */
-export const exportSlideSchema = z.object({
-  slideNumber: z.number(),
-  title: z.string(),
-  bulletPoints: z.array(z.string()),
-  narration: z.string(),
-  visualDescription: z.string(),
-  imageUrl: z.union([z.string().url(), z.literal('')]).optional(),
-});
+/** Slide shape for export (PPT/PDF); supports keyStat and subtitle for badge/subtitle zones. Accepts camelCase or snake_case. */
+export const exportSlideSchema = z
+  .object({
+    slideNumber: z.number(),
+    title: z.string(),
+    bulletPoints: z.array(z.string()),
+    narration: z.string(),
+    visualDescription: z.string(),
+    imageUrl: z.union([z.string().url(), z.literal('')]).optional(),
+    keyStat: z.string().optional(),
+    subtitle: z.string().optional(),
+    key_stat: z.string().optional(),
+    sub_title: z.string().optional(),
+  })
+  .transform((s) => ({
+    slideNumber: s.slideNumber,
+    title: s.title,
+    bulletPoints: s.bulletPoints,
+    narration: s.narration,
+    visualDescription: s.visualDescription,
+    imageUrl: s.imageUrl,
+    keyStat: s.keyStat ?? s.key_stat,
+    subtitle: s.subtitle ?? s.sub_title,
+  }));
 
 export const exportSlideshowRequestSchema = z.object({
   slides: z.array(exportSlideSchema).min(1),
