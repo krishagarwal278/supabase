@@ -141,12 +141,13 @@ router.post(
     const validated = submitInterestSchema.safeParse(req.body);
 
     if (!validated.success) {
-      const first = validated.error.flatten().fieldErrors;
-      const msg =
-        first && Object.keys(first).length > 0
-          ? `${Object.keys(first)[0]}: ${(Object.values(first)[0] as string[])?.[0] ?? validated.error.message}`
-          : validated.error.message;
-      throw new ValidationError(msg);
+      const fieldErrors = validated.error.flatten().fieldErrors as Record<string, string[]>;
+      const firstKey = Object.keys(fieldErrors)[0];
+      const firstMsg = firstKey
+        ? ((fieldErrors[firstKey] as string[])?.[0] ?? validated.error.message)
+        : validated.error.message;
+      const message = firstKey ? `${firstKey}: ${firstMsg}` : validated.error.message;
+      throw new ValidationError(message, { fieldErrors });
     }
 
     const submission = await interestService.submitInterestForm(validated.data);

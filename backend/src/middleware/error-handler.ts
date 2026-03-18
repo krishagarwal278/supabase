@@ -70,12 +70,14 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
       });
     }
 
+    // Always include details for ValidationError so frontend can show field-specific messages
+    const includeDetails = err.details && (err.code === 'VALIDATION_ERROR' || !isProduction());
     errorResponse(
       res,
       err.code,
       err.message,
       err.statusCode,
-      isProduction() ? undefined : err.details
+      includeDetails ? err.details : undefined
     );
     return;
   }
