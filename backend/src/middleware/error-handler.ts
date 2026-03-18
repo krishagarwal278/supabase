@@ -49,7 +49,7 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
     reqLogger.warn('Validation error', { errors: fieldErrors });
 
     errorResponse(res, 'VALIDATION_ERROR', 'Request validation failed', HTTP_STATUS.BAD_REQUEST, {
-      fields: fieldErrors,
+      fieldErrors,
     });
     return;
   }
@@ -70,15 +70,17 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
       });
     }
 
-    // Always include details for ValidationError so frontend can show field-specific messages
-    const includeDetails = err.details && (err.code === 'VALIDATION_ERROR' || !isProduction());
-    errorResponse(
-      res,
-      err.code,
-      err.message,
-      err.statusCode,
-      includeDetails ? err.details : undefined
-    );
+    // ValidationError: frontend reads error.fieldErrors; pass at top level of error object
+    const fieldErrors =
+      err.code === 'VALIDATION_ERROR' && err.details?.fieldErrors != null
+        ? (err.details.fieldErrors as Record<string, string[]>)
+        : undefined;
+    const includeDetails =
+      err.details && (err.code !== 'VALIDATION_ERROR' || !fieldErrors) && !isProduction();
+    errorResponse(res, err.code, err.message, err.statusCode, {
+      ...(fieldErrors && { fieldErrors }),
+      ...(includeDetails && err.details && { details: err.details }),
+    });
     return;
   }
 
@@ -93,7 +95,9 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
 
   const details = isProduction() ? undefined : { stack: err.stack };
 
-  errorResponse(res, 'INTERNAL_ERROR', message, HTTP_STATUS.INTERNAL_SERVER_ERROR, details);
+  errorResponse(res, 'INTERNAL_ERROR', message, HTTP_STATUS.INTERNAL_SERVER_ERROR, {
+    ...(details && { details }),
+  });
 }
 
 /**

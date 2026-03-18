@@ -195,56 +195,35 @@ export interface GenerationHistorySummary {
 export type InterestSubmissionStatus = 'pending' | 'approved' | 'rejected';
 
 /**
- * User role options for interest form
+ * User role options for interest form (exact allowlist per frontend contract)
  */
 export type InterestUserRole =
-  | 'student'
-  | 'self_learner'
-  | 'educator'
-  | 'educator_professor'
-  | 'content_creator'
-  | 'teachable_creator'
   | 'udemy_instructor'
   | 'coursera_creator'
+  | 'teachable_creator'
   | 'corporate_trainer'
   | 'instructional_designer'
   | 'certification_body'
-  | 'professional'
-  | 'developer'
-  | 'solopreneur'
+  | 'educator'
+  | 'content_creator'
   | 'other';
 
 /**
- * Early access priority/interest level + "Courses created" dropdown values
+ * Early access priority / "Courses created" — only these 3 (frontend contract)
  */
-export type EarlyAccessPriority =
-  | 'very_interested'
-  | 'somewhat_interested'
-  | 'just_exploring'
-  | 'planning_my_first_course'
-  | 'one_to_ten_courses'
-  | 'power_creator'
-  | 'few_courses'
-  | 'many_courses'
-  | 'scale_courses';
+export type EarlyAccessPriority = 'very_interested' | 'somewhat_interested' | 'just_exploring';
 
 /**
- * Video topics / What do you teach? (frontend tags + legacy)
+ * Video topics / What do you teach? (exact 7 slugs per frontend contract)
  */
 export type VideoTopic =
   | 'technical_skills'
   | 'business_finance'
   | 'academic'
-  | 'academic_subjects'
   | 'creative_skills'
-  | 'creative_design'
   | 'language_learning'
-  | 'languages'
   | 'career_prep'
-  | 'professional_certs'
-  | 'personal_development'
-  | 'personal_dev'
-  | 'programming_tech';
+  | 'personal_development';
 
 /**
  * Use case options (optional; frontend may not show this field)

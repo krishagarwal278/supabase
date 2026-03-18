@@ -18,6 +18,7 @@ interface ApiResponse<T = unknown> {
     code: string;
     message: string;
     details?: Record<string, unknown>;
+    fieldErrors?: Record<string, string[]>;
   };
   meta?: ResponseMeta;
 }
@@ -123,21 +124,34 @@ export function noContent(res: Response): Response {
 }
 
 /**
- * Create an error response
+ * Create an error response.
+ * When fieldErrors is provided (e.g. validation), frontend reads error.fieldErrors.
+ * When options is a plain object (e.g. { required, available }), it is used as error.details for backward compat.
  */
 export function error(
   res: Response,
   code: string,
   message: string,
   statusCode: number = HTTP_STATUS.INTERNAL_SERVER_ERROR,
-  details?: Record<string, unknown>
+  options?: { details?: Record<string, unknown>; fieldErrors?: Record<string, string[]> } & Record<
+    string,
+    unknown
+  >
 ): Response {
-  const errorObj: { code: string; message: string; details?: Record<string, unknown> } = {
-    code,
-    message,
-  };
-  if (details) {
-    errorObj.details = details;
+  const errorObj: {
+    code: string;
+    message: string;
+    details?: Record<string, unknown>;
+    fieldErrors?: Record<string, string[]>;
+  } = { code, message };
+  if (options?.fieldErrors) {
+    errorObj.fieldErrors = options.fieldErrors;
+  }
+  if (options?.details) {
+    errorObj.details = options.details;
+  } else if (options && Object.keys(options).filter((k) => k !== 'fieldErrors').length > 0) {
+    const { fieldErrors: _f, ...rest } = options;
+    errorObj.details = rest as Record<string, unknown>;
   }
 
   const response: ApiResponse = {

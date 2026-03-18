@@ -17,53 +17,31 @@ const router = Router();
 // Schemas
 // =============================================================================
 
-// Enum values for validation (must match frontend "I am a..." dropdown values)
+// Exact allowlists per frontend contract (see docs/BACKEND_REPO_SPEC.md)
 const userRoles = [
-  'student',
-  'self_learner',
-  'educator',
-  'educator_professor', // Educator / Professor
-  'content_creator',
-  'teachable_creator', // Teachable Creator
   'udemy_instructor',
   'coursera_creator',
-  'corporate_trainer', // Corporate Trainer / L&D
+  'teachable_creator',
+  'corporate_trainer',
   'instructional_designer',
   'certification_body',
-  'professional',
-  'developer',
-  'solopreneur', // Solopreneur / Individual
+  'educator',
+  'content_creator',
   'other',
 ] as const;
 
-// Interest level + "Courses created" dropdown (all valid permutations)
-const earlyAccessPriorities = [
-  'very_interested',
-  'somewhat_interested',
-  'just_exploring',
-  'planning_my_first_course', // Planning my first course
-  'one_to_ten_courses', // 1-10 courses
-  'power_creator', // 10+ courses (Power creator)
-  'few_courses',
-  'many_courses',
-  'scale_courses',
-] as const;
+// "Courses created" — only these 3 (frontend reverted to 3 options)
+const earlyAccessPriorities = ['very_interested', 'somewhat_interested', 'just_exploring'] as const;
 
-// What do you teach? (optional) — frontend tags + backend legacy values
+// What do you teach? (optional) — exact 7 topic slugs from frontend
 const videoTopics = [
   'technical_skills',
   'business_finance',
   'academic',
-  'academic_subjects', // frontend "Academic Subjects"
   'creative_skills',
-  'creative_design', // frontend "Creative & Design"
   'language_learning',
-  'languages', // frontend "Languages"
   'career_prep',
-  'professional_certs', // frontend "Professional Certs"
   'personal_development',
-  'personal_dev', // frontend "Personal Dev"
-  'programming_tech', // frontend "Programming & Tech"
 ] as const;
 
 const useCases = [
@@ -108,14 +86,9 @@ const submitInterestSchema = z.object({
   email: z.string().email('Invalid email address'),
   role: z.enum(userRoles, { errorMap: () => ({ message: 'Please select a valid role' }) }),
   earlyAccessPriority: z.enum(earlyAccessPriorities, {
-    errorMap: () => ({ message: 'Please select "Courses created"' }),
+    errorMap: () => ({ message: 'Please select your interest level' }),
   }),
-  // Optional: any combination of tags (0 to all), max 20 for safety
-  videoTopics: z
-    .array(z.enum(videoTopics))
-    .max(20, 'Select up to 20 topics')
-    .optional()
-    .default([]),
+  videoTopics: z.array(z.enum(videoTopics)).optional().default([]),
   useCase: optionalEnum(useCases),
   aiExperience: optionalEnum(aiExperienceLevels),
   biggestChallenge: optionalEnum(biggestChallenges),
@@ -142,12 +115,7 @@ router.post(
 
     if (!validated.success) {
       const fieldErrors = validated.error.flatten().fieldErrors as Record<string, string[]>;
-      const firstKey = Object.keys(fieldErrors)[0];
-      const firstMsg = firstKey
-        ? ((fieldErrors[firstKey] as string[])?.[0] ?? validated.error.message)
-        : validated.error.message;
-      const message = firstKey ? `${firstKey}: ${firstMsg}` : validated.error.message;
-      throw new ValidationError(message, { fieldErrors });
+      throw new ValidationError('Validation failed', { fieldErrors });
     }
 
     const submission = await interestService.submitInterestForm(validated.data);
