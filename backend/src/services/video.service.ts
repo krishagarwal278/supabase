@@ -625,11 +625,12 @@ export async function persistSlideshow(params: {
   }
 }
 
-/** Return type for a single slideshow from the table */
+/** Return type for a single slideshow from the table (includes project name when resolved) */
 export type StoredSlideshow = {
   id: string;
   userId: string;
   projectId: string | null;
+  projectName?: string | null;
   title: string | null;
   slideCount: number;
   totalDuration: number;
@@ -646,39 +647,98 @@ export type StoredSlideshow = {
 
 /**
  * Get all slideshows for a user (from slideshows table).
+ * When projectId is provided, returns only slideshows for that project.
+ * Each item includes projectName/project_name (resolved from projects table) so the list page can show project names.
  */
-export async function getSlideshows(userId?: string): Promise<StoredSlideshow[]> {
+export async function getSlideshows(
+  userId?: string,
+  projectId?: string
+): Promise<StoredSlideshow[]> {
   const supabase = getServiceClient();
 
+  // Prefer embed so project name comes in one query when FK exists; fallback to batch lookup
+  const selectWithProject = '*, projects(name)';
   let query = supabase
     .from(TABLES.SLIDESHOWS)
-    .select('*')
+    .select(selectWithProject)
     .order('created_at', { ascending: false });
 
   if (userId) {
     query = query.eq('user_id', userId);
   }
+  if (projectId) {
+    query = query.eq('project_id', projectId);
+  }
 
-  const { data, error } = await query;
+  let data: (Record<string, unknown> & { projects?: { name?: string } | null })[] | null = null;
+  let error: { message: string } | null = null;
 
-  if (error) {
+  const result = await query;
+  data = result.data as typeof data;
+  error = result.error;
+
+  // If embed fails (e.g. no FK), retry without embed and resolve names in a second query
+  if (error && (error.message.includes('relation') || error.message.includes('embed'))) {
+    let fallbackQuery = supabase
+      .from(TABLES.SLIDESHOWS)
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (userId) {
+      fallbackQuery = fallbackQuery.eq('user_id', userId);
+    }
+    if (projectId) {
+      fallbackQuery = fallbackQuery.eq('project_id', projectId);
+    }
+    const fallback = await fallbackQuery;
+    if (fallback.error) {
+      throw new DatabaseError(`Failed to fetch slideshows: ${fallback.error.message}`);
+    }
+    data = fallback.data || [];
+  } else if (error) {
     throw new DatabaseError(`Failed to fetch slideshows: ${error.message}`);
   }
 
-  return (data || []).map((row) => ({
-    id: row.id,
-    userId: row.user_id,
-    projectId: row.project_id,
-    title: row.title,
-    slideCount: row.slide_count,
-    totalDuration: row.total_duration,
-    slides: (row.slides || []) as StoredSlideshow['slides'],
-    createdAt: row.created_at,
-  }));
+  const rows = data || [];
+  const hasEmbed = rows.length > 0 && 'projects' in rows[0];
+  let projectNames = new Map<string, string>();
+  if (!hasEmbed) {
+    const projectIds = [
+      ...new Set(
+        rows.map((r) => (r as { project_id?: string }).project_id).filter(Boolean) as string[]
+      ),
+    ];
+    if (projectIds.length) {
+      projectNames = await projectService.getProjectNamesByIds(projectIds);
+    }
+  }
+
+  return rows.map((row) => {
+    const r = row as Record<string, unknown> & {
+      project_id?: string;
+      projects?: { name?: string } | null;
+    };
+    const projectName =
+      (r.projects && typeof r.projects === 'object' && r.projects.name) ||
+      (r.project_id ? (projectNames.get(r.project_id) ?? null) : null);
+    return {
+      id: (row as { id: string }).id,
+      userId: (row as { user_id: string }).user_id,
+      projectId: r.project_id ?? null,
+      project_id: r.project_id ?? null,
+      projectName: projectName || null,
+      project_name: projectName || null,
+      title: (row as { title: string | null }).title,
+      slideCount: (row as { slide_count: number }).slide_count,
+      totalDuration: (row as { total_duration: number }).total_duration,
+      slides: ((row as { slides?: unknown }).slides || []) as StoredSlideshow['slides'],
+      createdAt: (row as { created_at: string }).created_at,
+    };
+  });
 }
 
 /**
  * Get slideshows for a specific project (from slideshows table).
+ * Each item includes projectName when the slideshow has a project_id.
  */
 export async function getProjectSlideshows(projectId: string): Promise<StoredSlideshow[]> {
   const supabase = getServiceClient();
@@ -693,10 +753,20 @@ export async function getProjectSlideshows(projectId: string): Promise<StoredSli
     throw new DatabaseError(`Failed to fetch project slideshows: ${error.message}`);
   }
 
-  return (data || []).map((row) => ({
+  const rows = data || [];
+  const projectNames =
+    rows.length > 0
+      ? await projectService.getProjectNamesByIds([projectId])
+      : new Map<string, string>();
+  const projectName = projectNames.get(projectId) ?? null;
+
+  return rows.map((row) => ({
     id: row.id,
     userId: row.user_id,
     projectId: row.project_id,
+    project_id: row.project_id,
+    projectName,
+    project_name: projectName,
     title: row.title,
     slideCount: row.slide_count,
     totalDuration: row.total_duration,

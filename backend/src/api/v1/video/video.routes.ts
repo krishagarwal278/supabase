@@ -314,14 +314,16 @@ router.get(
 /**
  * GET /api/v1/video/slideshows
  * Get all slideshows for the current user (from slideshows table only).
+ * Optional query: projectId — return only slideshows for that project.
  */
 router.get(
   '/slideshows',
   asyncHandler(async (req: Request, res: Response) => {
     const userId =
       (req as AuthenticatedRequest).userId ?? (req.query['userId'] as string | undefined);
+    const projectId = req.query['projectId'] as string | undefined;
 
-    const slideshows = await videoService.getSlideshows(userId);
+    const slideshows = await videoService.getSlideshows(userId, projectId);
 
     return success(res, { slideshows });
   })
@@ -574,7 +576,7 @@ router.post(
       aspectRatio: body.aspectRatio,
       contentAiModel: body.contentAiModel,
       userId: body.userId,
-      projectId: body.projectId,
+      projectId: body.projectId ?? body.project_id,
       idempotencyKey: body.idempotencyKey,
     };
 

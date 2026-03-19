@@ -79,6 +79,29 @@ export async function getProjects(options?: {
 }
 
 /**
+ * Get project names by IDs (batch). Returns a Map of id -> name for existing projects.
+ */
+export async function getProjectNamesByIds(ids: string[]): Promise<Map<string, string>> {
+  if (ids.length === 0) {
+    return new Map();
+  }
+  const supabase = getServiceClient();
+  const unique = [...new Set(ids)];
+  const { data, error } = await supabase.from(TABLES.PROJECTS).select('id, name').in('id', unique);
+  if (error) {
+    serviceLogger.warn('Failed to fetch project names', { error: error.message });
+    return new Map();
+  }
+  const map = new Map<string, string>();
+  for (const row of data || []) {
+    if (row.id && row.name) {
+      map.set(row.id, row.name);
+    }
+  }
+  return map;
+}
+
+/**
  * Get a project by ID
  */
 export async function getProjectById(id: string): Promise<Project> {
